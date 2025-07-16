@@ -221,13 +221,13 @@ public class ClothEditHelper : MonoBehaviour
 
     private void SaveCurrent()
     {
+        // Check Override
         var scenepath = $"Assets/ClothEditRoot/Scenes/{ModelName}.unity";
         if (gameObject.scene.path != scenepath && System.IO.File.Exists(scenepath) && !EditorUtility.DisplayDialog("Overwrite Scene?", $"You already have a scene of {ModelName}.\n Do you want to overwrite that scene?", "Overwrite", "Donot"))
         {
             return;
         }
-        UnityEditor.SceneManagement.EditorSceneManager.SaveScene(gameObject.scene, scenepath);
-
+        // Create Magica PreBuild
         var pbsopath = $"Assets/ClothEditRoot/MagicaPreBuild/{ModelName}.asset";
         var pbso = AssetDatabase.LoadAssetAtPath<PreBuildScriptableObject>(pbsopath);
         if (pbso == null)
@@ -258,7 +258,7 @@ public class ClothEditHelper : MonoBehaviour
                 }
             }
         }
-
+        // RecordColliders
         var clothmans = ModelRoot.GetComponentsInChildren<ClothManager>();
         if (clothmans != null && clothmans.Length > 0)
         {
@@ -267,7 +267,9 @@ public class ClothEditHelper : MonoBehaviour
                 clothman.RecordColliders();
             }
         }
-
+        // Save Scene
+        UnityEditor.SceneManagement.EditorSceneManager.SaveScene(gameObject.scene, scenepath);
+        // Save Prefab and Modify
         var meshDir = $"Assets/CapsRes/Match/Models/Humanoids/Meshes/LOD0/{ModelName}/";
         var sms = ModelRoot.GetComponentsInChildren<SkinnedMeshRenderer>();
         if (sms != null && sms.Length > 0)
