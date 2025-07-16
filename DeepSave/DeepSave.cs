@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Animations;
+using UnityEngine.Playables;
 
 public static class DeepSave
 {
@@ -366,5 +368,99 @@ public static class DeepSave
             } while (sp.NextVisible(false));
         }
         catch (InvalidOperationException) { }
+    }
+
+    public static PlayableGraph FindPlayingGraph(Animator anim)
+    {
+        var allgraphs = UnityEditor.Playables.Utility.GetAllGraphs();
+        foreach (var graph in allgraphs)
+        {
+            if (graph.IsValid())
+            {
+                var ocnt = graph.GetOutputCount();
+                for (int i = 0; i < ocnt; ++i)
+                {
+                    var output = graph.GetOutput(i);
+                    if (output.GetPlayableOutputType() == typeof(AnimationPlayableOutput))
+                    {
+                        if (((AnimationPlayableOutput)output).GetTarget() == anim)
+                        {
+                            return graph;
+                        }
+                    }
+                }
+            }
+        }
+        return default;
+    }
+
+    [MenuItem("GameObject/Save Animation")]
+    public static void SaveAnimation()
+    {
+        static void SaveClip(AnimationClip clip)
+        {
+            if (AssetDatabase.GetAssetPath(clip) is not null and not "" and string path)
+            {
+                Debug.LogWarning($"{path} is already an asset!");
+            }
+            else
+            {
+                path = GetSavePath("/Anim/" + clip.name, ".anim");
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
+                AssetDatabase.CreateAsset(clip, path);
+            }
+        }
+
+        var root = Selection.activeGameObject;
+        var animator = root.GetComponent<Animator>();
+        if (animator != null)
+        {
+            var controller = animator.runtimeAnimatorController;
+            if (controller != null)
+            {
+                var clips = controller.animationClips;
+                if (clips != null && clips.Length > 0)
+                {
+                    foreach (var clip in clips)
+                    {
+                        SaveClip(clip);
+                    }
+                }
+            }
+            else if (animator.hasBoundPlayables)
+            {
+                var graph = FindPlayingGraph(animator);
+                if (graph.IsValid())
+                {
+                    static void TravelPlayableAndSaveAnim(Playable playable)
+                    {
+                        static void SaveAnimationClipPlayable(AnimationClipPlayable clipp)
+                        {
+                            var clip = clipp.GetAnimationClip();
+                            SaveClip(clip);
+                        }
+
+                        if (playable.GetPlayableType() == typeof(AnimationClipPlayable))
+                        {
+                            SaveAnimationClipPlayable((AnimationClipPlayable)playable);
+                        }
+                        Debug.LogError(playable.GetPlayableType());
+                        int incnt = playable.GetInputCount();
+                        for (int i = 0; i < incnt; ++i)
+                        {
+                            var inplayable = playable.GetInput(i);
+                            TravelPlayableAndSaveAnim(inplayable);
+                        }
+                    }
+
+                    int pcnt = graph.GetRootPlayableCount();
+                    for (int i = 0; i < pcnt; ++i)
+                    {
+                        var playable = graph.GetRootPlayable(i);
+                        TravelPlayableAndSaveAnim(playable);
+                    }
+                }
+            }
+        }
     }
 }
