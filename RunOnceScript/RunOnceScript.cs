@@ -72,14 +72,20 @@ public class RunOnceScript
                 if (asset is MonoScript sasset)
                 {
                     var maintype = sasset.GetClass();
-                    var methods = maintype.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
-                    foreach (var method in methods)
+                    if (maintype != null)
                     {
-                        if (!method.IsGenericMethod || method.IsConstructedGenericMethod)
+                        var methods = maintype.GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic);
+                        if (methods != null && methods.Length > 0)
                         {
-                            if (method.GetParameters() is null or { Length: 0 })
+                            foreach (var method in methods)
                             {
-                                commands.Add(method);
+                                if (!method.IsGenericMethod || method.IsConstructedGenericMethod)
+                                {
+                                    if (method.GetParameters() is null or { Length: 0 })
+                                    {
+                                        commands.Add(method);
+                                    }
+                                }
                             }
                         }
                     }
