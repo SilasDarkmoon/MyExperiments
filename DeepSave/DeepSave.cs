@@ -1,3 +1,4 @@
+using cfg;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -122,7 +123,21 @@ public static class DeepSave
             {
                 return savedMap[obj];
             }
-            if (obj is Shader shader)
+            if (obj is MonoScript sfile)
+            {
+                var comptype = sfile.GetClass();
+                var realsfile = FindScriptByType(comptype);
+                if (realsfile != null)
+                {
+                    if (savedMap != null)
+                    {
+                        savedMap[sfile] = realsfile;
+                    }
+                    return realsfile;
+                }
+                return sfile;
+            }
+            else if (obj is Shader shader)
             {
                 var newshader = Shader.Find(shader.name);
                 if (AssetDatabase.GetAssetPath(newshader) is not null and not "" and string newpath)
@@ -170,7 +185,7 @@ public static class DeepSave
                     SaveRef(comp, childPrefabNodes, childSavedMap, childSub);
                 }
             }
-            SaveRef(obj, childPrefabNodes, childSavedMap, childSub);
+            obj = SaveRef(obj, childPrefabNodes, childSavedMap, childSub);
 
             if (obj is GameObject pgo)
             {
@@ -329,35 +344,81 @@ public static class DeepSave
                 {
                     sp.objectReferenceValue = newasset;
                     sp.serializedObject.ApplyModifiedProperties();
+                    if (!obj)
+                    {
+                        obj = sp.serializedObject.targetObject;
+                    }
+                    Debug.Log($"Saved: {obj.name} ({obj.GetType().Name}) {sp.propertyPath}: {newasset.name} ({newasset.GetType().Name})");
                 }
-                Debug.Log($"Saved: {obj.name} ({obj.GetType().Name}) {sp.propertyPath}: {childValue.name} ({childValue.GetType().Name})");
+                else
+                {
+                    Debug.Log($"Saved: {obj.name} ({obj.GetType().Name}) {sp.propertyPath}: {childValue.name} ({childValue.GetType().Name})");
+                }
             }
         }
         else if (sp.propertyType == SerializedPropertyType.Generic)
         {
-            try
+            if (sp.isArray)
             {
-                foreach (var child in sp)
+                try
                 {
-                    if (child is SerializedProperty csp)
+                    foreach (var child in sp)
                     {
-                        SaveChildProperty(obj, csp, prefabNodes, savedMap, subpath);
-                    }
-                    else if (child is UnityEngine.Object childValue)
-                    {
-                        if (SaveChildRef(obj, childValue, prefabNodes, savedMap, subpath))
+                        if (child is SerializedProperty csp && csp.propertyType == SerializedPropertyType.ObjectReference)
                         {
-                            Debug.Log($"Saved: {obj.name} ({obj.GetType().Name}) {sp.propertyPath}: {childValue.name} ({childValue.GetType().Name})");
+                            SaveChildProperty(obj, csp, prefabNodes, savedMap, subpath);
+                        }
+                        else if (child is UnityEngine.Object childValue)
+                        {
+                            if (SaveChildRef(obj, childValue, prefabNodes, savedMap, subpath))
+                            {
+                                Debug.Log($"Saved: {obj.name} ({obj.GetType().Name}) {sp.propertyPath}: {childValue.name} ({childValue.GetType().Name})");
+                            }
+                        }
+                        else
+                        {
+                            break;
                         }
                     }
                 }
+                catch (InvalidOperationException) { }
             }
-            catch (InvalidOperationException) { }
+            else
+            {
+                try
+                {
+                    foreach (var child in sp)
+                    {
+                        if (child is SerializedProperty csp)
+                        {
+                            SaveChildProperty(obj, csp, prefabNodes, savedMap, subpath);
+                        }
+                        else if (child is UnityEngine.Object childValue)
+                        {
+                            if (SaveChildRef(obj, childValue, prefabNodes, savedMap, subpath))
+                            {
+                                Debug.Log($"Saved: {obj.name} ({obj.GetType().Name}) {sp.propertyPath}: {childValue.name} ({childValue.GetType().Name})");
+                            }
+                        }
+                    }
+                }
+                catch (InvalidOperationException) { }
+            }
         }
     }
-    public static void SaveRef(UnityEngine.Object obj, List<Transform> prefabNodes = null, Dictionary<UnityEngine.Object, UnityEngine.Object> savedMap = null, string subpath = null)
+    public static UnityEngine.Object SaveRef(UnityEngine.Object obj, List<Transform> prefabNodes = null, Dictionary<UnityEngine.Object, UnityEngine.Object> savedMap = null, string subpath = null)
     {
         SerializedObject so = new SerializedObject(obj);
+        // first: m_Script
+        var ssp = so.FindProperty("m_Script");
+        if (ssp != null)
+        {
+            SaveChildProperty(obj, ssp, prefabNodes, savedMap, subpath);
+            if (!obj)
+            {
+                obj = so.targetObject;
+            }
+        }
         var sp = so.GetIterator();
         sp.NextVisible(true);
         try
@@ -368,6 +429,7 @@ public static class DeepSave
             } while (sp.NextVisible(false));
         }
         catch (InvalidOperationException) { }
+        return obj;
     }
 
     public static PlayableGraph FindPlayingGraph(Animator anim)
@@ -462,5 +524,28 @@ public static class DeepSave
                 }
             }
         }
+    }
+
+    public static MonoScript FindScriptByType(Type type)
+    {
+        if (type == null || !typeof(MonoBehaviour).IsAssignableFrom(type) && !typeof(ScriptableObject).IsAssignableFrom(type))
+        {
+            return null;
+        }
+
+        string[] scriptGuids = AssetDatabase.FindAssets("t:Script");
+        foreach (string guid in scriptGuids)
+        {
+            string scriptPath = AssetDatabase.GUIDToAssetPath(guid);
+            // 加载脚本资产
+            MonoScript script = AssetDatabase.LoadAssetAtPath<MonoScript>(scriptPath);
+            if (script != null && script.GetClass() == type)
+            {
+                // 返回脚本文件的完整路径
+                return script;
+            }
+        }
+
+        return null;
     }
 }
