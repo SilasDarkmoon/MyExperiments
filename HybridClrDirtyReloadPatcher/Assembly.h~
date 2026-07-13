@@ -1,0 +1,8 @@
+
+        // Resets the token of every placeholder assembly back to 0, so that they
+        // can be reloaded via Assembly.Load / LoadFromBytes with updated bytes.
+        // Returns the number of placeholder assemblies whose token was reset.
+        // WARNING: intended for "dirty reload" scenarios. Previously loaded
+        // metadata/type structures are NOT freed, so reloading leaks memory and may
+        // leave stale references. Use with care.
+        static int ResetPlaceHolderAssemblyToken();

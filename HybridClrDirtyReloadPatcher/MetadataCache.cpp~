@@ -1,0 +1,4 @@
+il2cpp::utils::dynamic_array<Il2CppAssembly*>& il2cpp::vm::MetadataCache::GetCliAssembliesRef()
+{
+    return s_cliAssemblies;
+}

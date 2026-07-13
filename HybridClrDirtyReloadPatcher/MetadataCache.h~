@@ -1,0 +1,1 @@
+        static il2cpp::utils::dynamic_array<Il2CppAssembly*>& GetCliAssembliesRef();

@@ -1,0 +1,36 @@
+    int Assembly::ResetPlaceHolderAssemblyToken()
+    {
+#if ENABLE_PLACEHOLDER_DLL == 1
+        il2cpp::os::FastAutoLock lock(&il2cpp::vm::g_MetadataLock);
+        int count = 0;
+        for (Il2CppAssembly* ass : s_placeHolderAssembies)
+        {
+            if (ass->token)
+            {
+                ass->token = 0;
+
+                // After a real load, Create() set:
+                //   image->name      = ConcatNewString(...)   -> HYBRIDCLR_MALLOC'd (standalone)
+                //   image->nameNoExt = ass->aname.name        -> points INTO the raw image
+                //                                            string heap (an interior pointer,
+                //                                            NOT a standalone HYBRIDCLR_MALLOC block).
+                // On the next Create(), the placeholder-reuse branch unconditionally calls
+                // HYBRIDCLR_FREE on both image->name and image->nameNoExt. Freeing the interior
+                // raw-heap pointer crashes, so replace nameNoExt with a standalone copy here.
+                // (ass->aname.name is NOT freed by Create(); BuildIl2CppAssembly overwrites it,
+                //  and image->name is already a standalone HYBRIDCLR_MALLOC allocation, so we
+                //  leave both of those alone.)
+                Il2CppImage* img = ass->image;
+                if (img && img->nameNoExt)
+                {
+                    img->nameNoExt = CopyString(img->nameNoExt);
+                }
+                ++count;
+            }
+        }
+        return count;
+#else
+        return 0;
+#endif
+    }
+    

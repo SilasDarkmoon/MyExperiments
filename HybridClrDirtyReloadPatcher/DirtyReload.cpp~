@@ -1,0 +1,59 @@
+#include "CommonDef.h"
+
+#include "metadata/Assembly.h"
+
+#include "vm/MetadataCache.h"
+#include "vm/Assembly.h"
+#include "vm/MetadataLock.h"
+#include "os/Mutex.h"
+#include "utils/dynamic_array.h"
+#include "il2cpp-class-internals.h"
+
+// Internal backup storage for s_cliAssemblies.
+static il2cpp::utils::dynamic_array<Il2CppAssembly*> s_backupCliAssemblies;
+static bool s_hasBackup = false;
+
+extern "C"
+{
+    // Backs up the current s_cliAssemblies list to an internal static variable.
+    // Call this before loading new assembly versions that you may want to roll back.
+    void BackupCliAssemblyList()
+    {
+        il2cpp::os::FastAutoLock lock(&il2cpp::vm::g_MetadataLock);
+        s_backupCliAssemblies = il2cpp::vm::MetadataCache::GetCliAssembliesRef();
+        s_hasBackup = true;
+    }
+
+    // Restores the previously backed-up s_cliAssemblies list.
+    // No-op if BackupCliAssemblyList() was never called.
+    // NOTE: This only restores s_cliAssemblies (used by MetadataCache::GetAssemblyByName
+    // which iterates forward and returns the first match). The separate s_Assemblies list
+    // in Assembly.cpp (used by GetLoadedAssembly / GetAllAssemblies) is NOT affected.
+    // You may also want to call Assembly::InvalidateAssemblyList() to force a snapshot
+    // refresh if assembly identity resolution matters.
+    void RestoreCliAssemblyList()
+    {
+        il2cpp::os::FastAutoLock lock(&il2cpp::vm::g_MetadataLock);
+        if (s_hasBackup)
+        {
+            il2cpp::vm::MetadataCache::GetCliAssembliesRef() = s_backupCliAssemblies;
+        }
+    }
+
+    // Invalidates the cached assembly snapshot in Assembly.cpp (s_snapshotAssemblies).
+    // Call this after RestoreCliAssemblyList() so that GetAllAssemblies() / GetLoadedAssembly()
+    // rebuild their snapshot instead of returning stale data.
+    void InvalidateAssemblySnapshot()
+    {
+        il2cpp::vm::Assembly::InvalidateAssemblyList();
+    }
+
+    // Resets the token of ALL placeholder assemblies back to 0, allowing each of
+    // them to be reloaded via Assembly.Load / LoadFromBytes with updated bytes.
+    // Returns the number of placeholder assemblies whose token was reset.
+    // Call this before reloading hot-update assemblies that were already loaded once.
+    int ResetPlaceholderAssemblyToken()
+    {
+        return hybridclr::metadata::Assembly::ResetPlaceHolderAssemblyToken();
+    }
+}
