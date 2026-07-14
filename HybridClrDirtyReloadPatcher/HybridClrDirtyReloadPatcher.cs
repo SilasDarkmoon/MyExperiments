@@ -201,24 +201,64 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
         var hybridclrcodedir = "HybridCLRData/il2cpp_plus_repo/libil2cpp";
         var destdir = SettingsUtil.LocalIl2CppDir + "/libil2cpp";
 
-        var dirtyReloadFile = Path.Combine(hybridclrcodedir, "hybridclr/DirtyReload.cpp");
-        var dirtyReloadDestFile = Path.Combine(destdir, "hybridclr/DirtyReload.cpp");
-        File.Copy(dirtyReloadFile, dirtyReloadDestFile, true);
+        if (!Directory.Exists(hybridclrcodedir) || !Directory.Exists(destdir))
+        {
+            return;
+        }
 
-        var assemblyHeaderFile = Path.Combine(hybridclrcodedir, "hybridclr/metadata/Assembly.h");
-        var assemblyHeaderDestFile = Path.Combine(destdir, "hybridclr/metadata/Assembly.h");
-        File.Copy(assemblyHeaderFile, assemblyHeaderDestFile, true);
+        try
+        {
+            var dirtyReloadFile = Path.Combine(hybridclrcodedir, "hybridclr/DirtyReload.cpp");
+            var dirtyReloadDestFile = Path.Combine(destdir, "hybridclr/DirtyReload.cpp");
+            File.Copy(dirtyReloadFile, dirtyReloadDestFile, true);
+        }
+        catch (Exception e)
+        {
+            Debug.LogException(e);
+        }
 
-        var assemblyCppFile = Path.Combine(hybridclrcodedir, "hybridclr/metadata/Assembly.cpp");
-        var assemblyCppDestFile = Path.Combine(destdir, "hybridclr/metadata/Assembly.cpp");
-        File.Copy(assemblyCppFile, assemblyCppDestFile, true);
+        try
+        {
+            var assemblyHeaderFile = Path.Combine(hybridclrcodedir, "hybridclr/metadata/Assembly.h");
+            var assemblyHeaderDestFile = Path.Combine(destdir, "hybridclr/metadata/Assembly.h");
+            File.Copy(assemblyHeaderFile, assemblyHeaderDestFile, true);
+        }
+        catch (Exception e)
+        {
+            Debug.LogException(e);
+        }
 
-        var metaCacheHeaderFile = Path.Combine(hybridclrcodedir, "vm/MetadataCache.h");
-        var metaCacheHeaderDestFile = Path.Combine(destdir, "vm/MetadataCache.h");
-        File.Copy(metaCacheHeaderFile, metaCacheHeaderDestFile, true);
+        try
+        {
+            var assemblyCppFile = Path.Combine(hybridclrcodedir, "hybridclr/metadata/Assembly.cpp");
+            var assemblyCppDestFile = Path.Combine(destdir, "hybridclr/metadata/Assembly.cpp");
+            File.Copy(assemblyCppFile, assemblyCppDestFile, true);
+        }
+        catch (Exception e)
+        {
+            Debug.LogException(e);
+        }
 
-        var metaCacheCppFile = Path.Combine(hybridclrcodedir, "vm/MetadataCache.cpp");
-        var metaCacheCppDestFile = Path.Combine(destdir, "vm/MetadataCache.cpp");
-        File.Copy(metaCacheCppFile, metaCacheCppDestFile, true);
+        try
+        {
+            var metaCacheHeaderFile = Path.Combine(hybridclrcodedir, "vm/MetadataCache.h");
+            var metaCacheHeaderDestFile = Path.Combine(destdir, "vm/MetadataCache.h");
+            File.Copy(metaCacheHeaderFile, metaCacheHeaderDestFile, true);
+        }
+        catch (Exception e)
+        {
+            Debug.LogException(e);
+        }
+
+        try
+        {
+            var metaCacheCppFile = Path.Combine(hybridclrcodedir, "vm/MetadataCache.cpp");
+            var metaCacheCppDestFile = Path.Combine(destdir, "vm/MetadataCache.cpp");
+            File.Copy(metaCacheCppFile, metaCacheCppDestFile, true);
+        }
+        catch (Exception e)
+        {
+            Debug.LogException(e);
+        }
     }
 }
