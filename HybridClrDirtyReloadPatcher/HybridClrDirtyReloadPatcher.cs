@@ -182,6 +182,9 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
         var assemblyCppSrcFile = Path.Combine(curdir, "Assembly.cpp~");
         PatchFile(assemblyCppSrcFile, assemblyCppFile, "static void RunModuleInitializer(Il2CppImage* image)");
 
+        var assemblyCppSrcFile2 = Path.Combine(curdir, "Assembly.cpp.2~");
+        PatchFile(assemblyCppSrcFile2, assemblyCppFile, "HYBRIDCLR_FREE((void*)ass->image->name);");
+
         var metaCacheHeaderFile = Path.Combine(hybridclrcodedir, "vm/MetadataCache.h");
         var metaCacheHeaderSrcFile = Path.Combine(curdir, "MetadataCache.h~");
         PatchFile(metaCacheHeaderSrcFile, metaCacheHeaderFile, "static void RegisterInterpreterAssembly(Il2CppAssembly* assembly);", true);
