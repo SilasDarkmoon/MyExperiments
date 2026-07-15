@@ -1,1 +1,1 @@
-    image2 = new (HYBRIDCLR_MALLOC_ZERO(sizeof(Il2CppImage))) Il2CppImage;
+        Il2CppAssembly* assph = nullptr;

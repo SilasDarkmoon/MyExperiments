@@ -1,0 +1,11 @@
+
+        if (assph)
+        {
+            Il2CppImage* imageph = assph->image;
+            memcpy(assph, ass, sizeof(Il2CppAssembly));
+            assph->image = imageph;
+            memcpy(imageph, image2, sizeof(Il2CppImage));
+            imageph->assembly = assph;
+            imageph->name = CopyString(image2->name);
+            imageph->nameNoExt = CopyString(image2->nameNoExt);
+        }

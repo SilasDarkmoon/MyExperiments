@@ -103,7 +103,7 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
             Debug.LogException(e);
         }
 
-        static void PatchFile(string srcFile, string destFile, string beforeLine = null, bool reverseSearching = false)
+        static void PatchFile(string srcFile, string destFile, string atLine = null, bool afterLine = false, bool reverseSearching = false)
         {
             try
             {
@@ -120,7 +120,7 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
                     insertlines.Add("// HybridClrDirtyReloadPatcher - Start");
                     insertlines.AddRange(File.ReadAllLines(srcFile));
                     insertlines.Add("// HybridClrDirtyReloadPatcher - End");
-                    if (string.IsNullOrEmpty(beforeLine))
+                    if (string.IsNullOrEmpty(atLine))
                     {
                         if (reverseSearching)
                         {
@@ -138,11 +138,10 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
                         int insertIndex = -1;
                         if (reverseSearching)
                         {
-                            insertIndex = 0;
                             for (int i = oldlines.Length - 1; i >= 0; --i)
                             {
                                 var line = oldlines[i];
-                                if (line.Trim().StartsWith(beforeLine))
+                                if (line.Trim().StartsWith(atLine))
                                 {
                                     insertIndex = i;
                                     break;
@@ -151,15 +150,32 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
                         }
                         else
                         {
-                            insertIndex = oldlines.Length;
                             for (int i = 0; i < oldlines.Length; ++i)
                             {
                                 var line = oldlines[i];
-                                if (line.Trim().StartsWith(beforeLine))
+                                if (line.Trim().StartsWith(atLine))
                                 {
                                     insertIndex = i;
                                     break;
                                 }
+                            }
+                        }
+                        if (insertIndex < 0)
+                        {
+                            if (reverseSearching)
+                            {
+                                insertIndex = 0;
+                            }
+                            else
+                            {
+                                insertIndex = oldlines.Length;
+                            }
+                        }
+                        else
+                        {
+                            if (afterLine)
+                            {
+                                ++insertIndex;
                             }
                         }
                         newlines.AddRange(oldlines);
@@ -176,18 +192,24 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
 
         var assemblyHeaderFile = Path.Combine(hybridclrcodedir, "hybridclr/metadata/Assembly.h");
         var assemblyHeaderSrcFile = Path.Combine(curdir, "Assembly.h~");
-        PatchFile(assemblyHeaderSrcFile, assemblyHeaderFile, "private:", true);
+        PatchFile(assemblyHeaderSrcFile, assemblyHeaderFile, "private:", reverseSearching: true);
 
         var assemblyCppFile = Path.Combine(hybridclrcodedir, "hybridclr/metadata/Assembly.cpp");
         var assemblyCppSrcFile = Path.Combine(curdir, "Assembly.cpp~");
         PatchFile(assemblyCppSrcFile, assemblyCppFile, "static void RunModuleInitializer(Il2CppImage* image)");
 
         var assemblyCppSrcFile2 = Path.Combine(curdir, "Assembly.cpp.2~");
-        PatchFile(assemblyCppSrcFile2, assemblyCppFile, "HYBRIDCLR_FREE((void*)ass->image->name);");
+        PatchFile(assemblyCppSrcFile2, assemblyCppFile, "if ((ass = FindPlaceHolderAssembly(nameNoExt)) != nullptr)");
+
+        var assemblyCppSrcFile3 = Path.Combine(curdir, "Assembly.cpp.3~");
+        PatchFile(assemblyCppSrcFile3, assemblyCppFile, "HYBRIDCLR_FREE((void*)ass->image->nameNoExt);", afterLine: true);
+
+        var assemblyCppSrcFile4 = Path.Combine(curdir, "Assembly.cpp.4~");
+        PatchFile(assemblyCppSrcFile4, assemblyCppFile, "il2cpp::vm::MetadataCache::RegisterInterpreterAssembly(ass);", afterLine: true);
 
         var metaCacheHeaderFile = Path.Combine(hybridclrcodedir, "vm/MetadataCache.h");
         var metaCacheHeaderSrcFile = Path.Combine(curdir, "MetadataCache.h~");
-        PatchFile(metaCacheHeaderSrcFile, metaCacheHeaderFile, "static void RegisterInterpreterAssembly(Il2CppAssembly* assembly);", true);
+        PatchFile(metaCacheHeaderSrcFile, metaCacheHeaderFile, "static void RegisterInterpreterAssembly(Il2CppAssembly* assembly);", reverseSearching: true);
 
         var metaCacheCppFile = Path.Combine(hybridclrcodedir, "vm/MetadataCache.cpp");
         var metaCacheCppSrcFile = Path.Combine(curdir, "MetadataCache.cpp~");
