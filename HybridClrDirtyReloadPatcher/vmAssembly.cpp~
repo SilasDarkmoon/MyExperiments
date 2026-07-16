@@ -1,0 +1,15 @@
+
+    void Assembly::ReplaceLoadedAssembly(const char* assemblyName, const Il2CppAssembly* newAssembly)
+    {
+        os::FastAutoLock lock(&s_assemblyLock);
+
+        for (AssemblyVector::iterator it = s_Assemblies.begin(); it != s_Assemblies.end(); ++it)
+        {
+            if (strcmp((*it)->aname.name, assemblyName) == 0)
+            {
+                *it = newAssembly;
+                ++s_assemblyVersion;
+                return;
+            }
+        }
+    }

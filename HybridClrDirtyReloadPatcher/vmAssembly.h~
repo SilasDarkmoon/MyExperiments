@@ -1,0 +1,1 @@
+        static void ReplaceLoadedAssembly(const char* assemblyName, const Il2CppAssembly* newAssembly);

@@ -79,6 +79,10 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
         RemovePatchedLines(metaCacheHeaderFile);
         var metaCacheCppFile = Path.Combine(hybridclrcodedir, "vm/MetadataCache.cpp");
         RemovePatchedLines(metaCacheCppFile);
+        var vmAssemblyHeaderFile = Path.Combine(hybridclrcodedir, "vm/Assembly.h");
+        RemovePatchedLines(vmAssemblyHeaderFile);
+        var vmAssemblyCppFile = Path.Combine(hybridclrcodedir, "vm/Assembly.cpp");
+        RemovePatchedLines(vmAssemblyCppFile);
     }
 
     public static void PatchFiles()
@@ -205,7 +209,7 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
         PatchFile(assemblyCppSrcFile3, assemblyCppFile, "HYBRIDCLR_FREE((void*)ass->image->nameNoExt);", afterLine: true);
 
         var assemblyCppSrcFile4 = Path.Combine(curdir, "Assembly.cpp.4~");
-        PatchFile(assemblyCppSrcFile4, assemblyCppFile, "il2cpp::vm::MetadataCache::RegisterInterpreterAssembly(ass);", afterLine: true);
+        PatchFile(assemblyCppSrcFile4, assemblyCppFile, "il2cpp::vm::MetadataCache::RegisterInterpreterAssembly(ass);");
 
         var metaCacheHeaderFile = Path.Combine(hybridclrcodedir, "vm/MetadataCache.h");
         var metaCacheHeaderSrcFile = Path.Combine(curdir, "MetadataCache.h~");
@@ -214,6 +218,14 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
         var metaCacheCppFile = Path.Combine(hybridclrcodedir, "vm/MetadataCache.cpp");
         var metaCacheCppSrcFile = Path.Combine(curdir, "MetadataCache.cpp~");
         PatchFile(metaCacheCppSrcFile, metaCacheCppFile, "void il2cpp::vm::MetadataCache::RegisterInterpreterAssembly(Il2CppAssembly* assembly)");
+
+        var vmAssemblyHeaderFile = Path.Combine(hybridclrcodedir, "vm/Assembly.h");
+        var vmAssemblyHeaderSrcFile = Path.Combine(curdir, "vmAssembly.h~");
+        PatchFile(vmAssemblyHeaderSrcFile, vmAssemblyHeaderFile, "static void InvalidateAssemblyList();", reverseSearching: true);
+
+        var vmAssemblyCppFile = Path.Combine(hybridclrcodedir, "vm/Assembly.cpp");
+        var vmAssemblyCppSrcFile = Path.Combine(curdir, "vmAssembly.cpp~");
+        PatchFile(vmAssemblyCppSrcFile, vmAssemblyCppFile, "void Assembly::InvalidateAssemblyList()");
     }
 
     private static string GetCurrentFile([CallerFilePath] string filePath = "")
@@ -279,6 +291,28 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
         {
             var metaCacheCppFile = Path.Combine(hybridclrcodedir, "vm/MetadataCache.cpp");
             var metaCacheCppDestFile = Path.Combine(destdir, "vm/MetadataCache.cpp");
+            File.Copy(metaCacheCppFile, metaCacheCppDestFile, true);
+        }
+        catch (Exception e)
+        {
+            Debug.LogException(e);
+        }
+
+        try
+        {
+            var metaCacheHeaderFile = Path.Combine(hybridclrcodedir, "vm/Assembly.h");
+            var metaCacheHeaderDestFile = Path.Combine(destdir, "vm/Assembly.h");
+            File.Copy(metaCacheHeaderFile, metaCacheHeaderDestFile, true);
+        }
+        catch (Exception e)
+        {
+            Debug.LogException(e);
+        }
+
+        try
+        {
+            var metaCacheCppFile = Path.Combine(hybridclrcodedir, "vm/Assembly.cpp");
+            var metaCacheCppDestFile = Path.Combine(destdir, "vm/Assembly.cpp");
             File.Copy(metaCacheCppFile, metaCacheCppDestFile, true);
         }
         catch (Exception e)
