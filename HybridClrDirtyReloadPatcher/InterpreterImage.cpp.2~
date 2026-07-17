@@ -216,6 +216,53 @@
 			// Note: this runs inside Assembly::Create which already holds
 			// g_MetadataLock, so no additional locking is taken here.
 
+			// Publish the reused class in the NEW image before rebinding its
+			// Il2CppType/typeMetadataHandle. After the rebind, resolving
+			// oldKlass->byval_arg must return oldKlass from this image's _classList,
+			// not the temporary newKlass nor the previous image's class.
+			_classList[newRawIndex] = oldKlass;
+
+			// Rebind class-level metadata first. Method resolution often starts from
+			// method->klass->byval_arg or object->klass->byval_arg; if these still
+			// point to the previous image's Il2CppTypeDefinition, ResolveMethodDefinition
+			// finds an old methodDef, while the MethodInfo array has been rebound to
+			// the new methodDef handles, causing MethodNotFind by pointer mismatch.
+			oldKlass->image = newKlass->image;
+			oldKlass->name = newKlass->name;
+			oldKlass->namespaze = newKlass->namespaze;
+			oldKlass->byval_arg = newKlass->byval_arg;
+			oldKlass->this_arg = newKlass->this_arg;
+			oldKlass->typeMetadataHandle = newKlass->typeMetadataHandle;
+			oldKlass->genericContainerHandle = newKlass->genericContainerHandle;
+			oldKlass->flags = newKlass->flags;
+			oldKlass->token = newKlass->token;
+			oldKlass->method_count = newKlass->method_count;
+			oldKlass->property_count = newKlass->property_count;
+			oldKlass->field_count = newKlass->field_count;
+			oldKlass->event_count = newKlass->event_count;
+			oldKlass->nested_type_count = newKlass->nested_type_count;
+			oldKlass->vtable_count = newKlass->vtable_count;
+			oldKlass->interfaces_count = newKlass->interfaces_count;
+			oldKlass->interface_offsets_count = newKlass->interface_offsets_count;
+
+			// Rebind field metadata too. FieldInfo carries parent/type pointers from
+			// the old image, and later field/member resolution has the same pointer
+			// identity problem as methods.
+			if (oldKlass->fields && newKlass->fields
+				&& oldKlass->field_count == newKlass->field_count)
+			{
+				for (uint16_t f = 0; f < oldKlass->field_count; f++)
+				{
+					FieldInfo& oldField = oldKlass->fields[f];
+					const FieldInfo& newField = newKlass->fields[f];
+					oldField.name = newField.name;
+					oldField.type = newField.type;
+					oldField.offset = newField.offset;
+					oldField.token = newField.token;
+					oldField.parent = oldKlass;
+				}
+			}
+
 			// Rebind each reused MethodInfo to the new image's metadata. The
 			// structural-compatibility check above guarantees identical method
 			// count and per-index correspondence (same name / parameter count).
@@ -268,7 +315,6 @@
 				}
 			}
 
-			_classList[newRawIndex] = oldKlass;
 			reusedCount++;
 		}
 		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] class reuse done: reused %u UnityEngine.Object-derived Il2CppClass* pointer(s).", reusedCount);
