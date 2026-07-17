@@ -104,12 +104,29 @@
 
 		// Reuse selectively, keyed by type full name (row index may differ across
 		// versions when types are added/removed/reordered).
-		for (Il2CppClass* oldKlass : prev->_classList)
+		//
+		// NOTE: iterate over a snapshot of prev->_classList indices. prev is a
+		// DIFFERENT container from this->_classList (which we mutate below), so
+		// there is no iterator invalidation, but taking the size once keeps the
+		// bound stable and makes the traversal obviously finite.
+		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] begin class reuse: prev image _index=%u, prev classes=%u",
+			prev->_index, (uint32_t)prev->_classList.size());
+		uint32_t reusedCount = 0;
+		for (size_t ci = 0, cn = prev->_classList.size(); ci < cn; ci++)
 		{
+			Il2CppClass* oldKlass = prev->_classList[ci];
 			if (!oldKlass)
 				continue;
 
+			// Only reuse classes actually produced by prev's image. A reused
+			// class stored in prev->_classList from an even earlier load would
+			// have a different image; skip it to avoid touching foreign metadata.
+			if (oldKlass->image != prev->_il2cppImage)
+				continue;
+
 			// Only UnityEngine.Object-derived types need pointer stability.
+			// oldKlass is fully initialized from a previous load, so HasParent
+			// (which only walks the already-built parent chain) is safe here.
 			if (!il2cpp::vm::Class::HasParent(oldKlass, unityObjectClass))
 				continue;
 
@@ -143,8 +160,30 @@
 			if (!newKlass)
 				continue;
 
-			il2cpp::vm::Class::Init(oldKlass);
-			il2cpp::vm::Class::Init(newKlass);
+			// IMPORTANT: do NOT call Class::Init(newKlass) here.
+			//
+			// This runs inside Assembly::Create, BEFORE this new image is
+			// registered (RegisterInterpreterAssembly runs afterwards). A full
+			// Class::Init would trigger SetupVTable / SetupTypeHierarchy /
+			// SetupGCDescriptor (which walk the parent chain) / SetupFields /
+			// static-ctor bookkeeping on a type whose Il2CppImage is not yet
+			// visible to the metadata subsystem, and whose _classList slot is
+			// about to be overwritten with the reused oldKlass a few lines
+			// below. In dirty-reload scenarios with inheriting UnityEngine.Object
+			// derived types this can produce a parent chain that mixes old/new
+			// Il2CppClass objects and makes the hierarchy/GC-bitmap walkers spin
+			// (observed as a hang on the SECOND load).
+			//
+			// For reuse we only need the methods array (structural compare +
+			// per-index MethodInfo rebind) and the fields array (structural
+			// compare). Set those up lazily and cheaply instead of a full Init.
+			// oldKlass is already fully initialized from the first load, so
+			// SetupMethods/SetupFields on it are no-ops (guarded by klass->methods
+			// / klass->size_inited).
+			il2cpp::vm::Class::SetupMethods(oldKlass);
+			il2cpp::vm::Class::SetupFields(oldKlass);
+			il2cpp::vm::Class::SetupMethods(newKlass);
+			il2cpp::vm::Class::SetupFields(newKlass);
 
 			if (!IsClassStructurallyCompatible(oldKlass, newKlass))
 			{
@@ -230,5 +269,7 @@
 			}
 
 			_classList[newRawIndex] = oldKlass;
+			reusedCount++;
 		}
+		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] class reuse done: reused %u UnityEngine.Object-derived Il2CppClass* pointer(s).", reusedCount);
 	}
