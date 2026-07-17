@@ -1,0 +1,178 @@
+	// Returns the UnityEngine.Object Il2CppClass*, or nullptr if it cannot be
+	// resolved (e.g. UnityEngine assembly not yet loaded). Cached after first
+	// successful resolution.
+	static Il2CppClass* GetUnityEngineObjectClass()
+	{
+		static Il2CppClass* s_unityObjectClass = nullptr;
+		if (s_unityObjectClass)
+			return s_unityObjectClass;
+		const Il2CppAssembly* unityAss = il2cpp::vm::Assembly::GetLoadedAssembly("UnityEngine.CoreModule");
+		if (!unityAss)
+			unityAss = il2cpp::vm::Assembly::GetLoadedAssembly("UnityEngine");
+		if (!unityAss || !unityAss->image)
+			return nullptr;
+		s_unityObjectClass = il2cpp::vm::Class::FromName(unityAss->image, "UnityEngine", "Object");
+		return s_unityObjectClass;
+	}
+
+	// Compares the structural signature (field count/name/type-name and method
+	// count/name) of two already-Init'd Il2CppClass objects. Returns true when
+	// they are structurally identical, meaning the old Il2CppClass* can safely be
+	// reused for the reloaded type.
+	static bool IsClassStructurallyCompatible(Il2CppClass* oldKlass, Il2CppClass* newKlass)
+	{
+		if (oldKlass->field_count != newKlass->field_count)
+			return false;
+		if (oldKlass->method_count != newKlass->method_count)
+			return false;
+
+		for (uint16_t f = 0; f < oldKlass->field_count; f++)
+		{
+			const FieldInfo& of = oldKlass->fields[f];
+			const FieldInfo& nf = newKlass->fields[f];
+			if (!of.name || !nf.name || std::strcmp(of.name, nf.name) != 0)
+				return false;
+			// Compare field type by resolved type name (Il2CppType* pointers differ
+			// across images, so identity comparison is not usable).
+			Il2CppClass* ofType = il2cpp::vm::Class::FromIl2CppType(of.type, false);
+			Il2CppClass* nfType = il2cpp::vm::Class::FromIl2CppType(nf.type, false);
+			if (!ofType || !nfType)
+				return false;
+			if (of.type->type != nf.type->type)
+				return false;
+			if (std::strcmp(il2cpp::vm::Class::GetName(ofType), il2cpp::vm::Class::GetName(nfType)) != 0)
+				return false;
+		}
+
+		for (uint16_t m = 0; m < oldKlass->method_count; m++)
+		{
+			const MethodInfo* om = oldKlass->methods[m];
+			const MethodInfo* nm = newKlass->methods[m];
+			if (!om || !nm || !om->name || !nm->name)
+				return false;
+			if (std::strcmp(om->name, nm->name) != 0)
+				return false;
+			if (om->parameters_count != nm->parameters_count)
+				return false;
+		}
+
+		return true;
+	}
+
+	void InterpreterImage::ReuseClassListFromPreviousLoad(Il2CppImage* il2cppImage)
+	{
+		// On dirty reload a fresh InterpreterImage is created with an all-null
+		// _classList, so type lookups create brand-new Il2CppClass objects.
+		// Unity native registers MonoBehaviour ScriptingClasses keyed by
+		// Il2CppClass* and only scans each Il2CppImage* once. Because the
+		// placeholder's Il2CppImage* is reused (Unity cached it at registration
+		// time), Unity will not re-scan, leaving the new Il2CppClass objects
+		// unregistered — AddComponent<MonoBehaviour>() returns null.
+		//
+		// Fix: for types derived from UnityEngine.Object (the ones Unity native
+		// caches by Il2CppClass*), reuse the SAME Il2CppClass* from the previous
+		// load so Unity's registrations remain valid — but ONLY when the type is
+		// structurally unchanged (same fields, same method count). All other
+		// types are dropped (left null) and re-created lazily from the new IL.
+		//
+		// Method bodies of reused classes still update: they are resolved through
+		// klass->image->token which now points to this new InterpreterImage. We
+		// clear the cached interpData so methods re-transform from the new IL.
+
+		// Find the most recent previous InterpreterImage sharing the same Il2CppImage*.
+		InterpreterImage* prev = nullptr;
+		for (uint32_t i = 0; i < kMaxMetadataImageCount; i++)
+		{
+			InterpreterImage* img = s_images[i];
+			if (!img || img == this)
+				continue;
+			if (img->_il2cppImage == il2cppImage && !img->_classList.empty())
+			{
+				if (!prev || img->_index > prev->_index)
+					prev = img;
+			}
+		}
+		if (!prev)
+			return;
+
+		Il2CppClass* unityObjectClass = GetUnityEngineObjectClass();
+		if (!unityObjectClass)
+		{
+			// Cannot classify UnityEngine.Object-derived types; reuse nothing.
+			return;
+		}
+
+		// Reuse selectively, keyed by type full name (row index may differ across
+		// versions when types are added/removed/reordered).
+		for (Il2CppClass* oldKlass : prev->_classList)
+		{
+			if (!oldKlass)
+				continue;
+
+			// Only UnityEngine.Object-derived types need pointer stability.
+			if (!il2cpp::vm::Class::HasParent(oldKlass, unityObjectClass))
+				continue;
+
+			// Locate the same type (by namespace + name) in this (new) image.
+			int32_t newRawIndex = -1;
+			const char* oldNs = il2cpp::vm::Class::GetNamespace(oldKlass);
+			const char* oldName = il2cpp::vm::Class::GetName(oldKlass);
+			for (uint32_t i = 0, n = (uint32_t)_classList.size(); i < n; i++)
+			{
+				const Il2CppTypeDefinition* td = &_typesDefines[i];
+				const char* ns = il2cpp::vm::GlobalMetadata::GetStringFromIndex(td->namespaceIndex);
+				const char* nm = il2cpp::vm::GlobalMetadata::GetStringFromIndex(td->nameIndex);
+				if (ns && nm && oldNs && oldName
+					&& std::strcmp(ns, oldNs) == 0 && std::strcmp(nm, oldName) == 0)
+				{
+					newRawIndex = (int32_t)i;
+					break;
+				}
+			}
+
+			if (newRawIndex < 0)
+			{
+				// Type removed in the new version. Its old Il2CppClass* is leaked
+				// (still referenced by Unity/GC), but it is no longer produced by
+				// this image. Nothing to reuse.
+				continue;
+			}
+
+			// Build the new Il2CppClass to compare structure.
+			Il2CppClass* newKlass = GetTypeInfoFromTypeDefinitionRawIndex((uint32_t)newRawIndex);
+			if (!newKlass)
+				continue;
+
+			il2cpp::vm::Class::Init(oldKlass);
+			il2cpp::vm::Class::Init(newKlass);
+
+			if (!IsClassStructurallyCompatible(oldKlass, newKlass))
+			{
+				il2cpp::utils::Logging::Write(
+					"[HybridCLR][DirtyReload] structural change detected for UnityEngine.Object-derived type '%s.%s'; discarding Il2CppClass reuse (Unity native cache may become stale).",
+					oldNs ? oldNs : "", oldName ? oldName : "");
+				// Keep the freshly created newKlass in _classList (already set by
+				// GetTypeInfoFromTypeDefinitionRawIndex); do NOT reuse the old one.
+				continue;
+			}
+
+			// Structurally compatible: reuse the old Il2CppClass* so Unity native
+			// registrations stay valid. Overwrite the freshly created newKlass.
+			_classList[newRawIndex] = oldKlass;
+
+			// Clear cached interpreter method data so bodies re-transform from this
+			// image's IL on next invocation (leaks old InterpMethodInfo — acceptable
+			// for dirty reload). Ensure no hot-update code is running concurrently.
+			if (oldKlass->methods)
+			{
+				for (uint16_t m = 0; m < oldKlass->method_count; m++)
+				{
+					MethodInfo* method = const_cast<MethodInfo*>(oldKlass->methods[m]);
+					if (method && method->isInterpterImpl && method->interpData)
+					{
+						method->interpData = nullptr;
+					}
+				}
+			}
+		}
+	}

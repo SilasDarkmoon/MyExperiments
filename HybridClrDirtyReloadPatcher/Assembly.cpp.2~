@@ -1,1 +1,2 @@
-        Il2CppAssembly* assph = nullptr;
+        if (FindPlaceHolderAssembly(nameNoExt) != nullptr)
+            image->ReuseClassListFromPreviousLoad(image2);

@@ -1,0 +1,3 @@
+#include "vm/Class.h"
+#include "vm/Assembly.h"
+#include "utils/Logging.h"

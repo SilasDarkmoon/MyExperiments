@@ -71,18 +71,19 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
             catch (DirectoryNotFoundException) { }
         }
 
-        var assemblyHeaderFile = Path.Combine(hybridclrcodedir, "hybridclr/metadata/Assembly.h");
-        RemovePatchedLines(assemblyHeaderFile);
-        var assemblyCppFile = Path.Combine(hybridclrcodedir, "hybridclr/metadata/Assembly.cpp");
-        RemovePatchedLines(assemblyCppFile);
-        var metaCacheHeaderFile = Path.Combine(hybridclrcodedir, "vm/MetadataCache.h");
-        RemovePatchedLines(metaCacheHeaderFile);
-        var metaCacheCppFile = Path.Combine(hybridclrcodedir, "vm/MetadataCache.cpp");
-        RemovePatchedLines(metaCacheCppFile);
-        var vmAssemblyHeaderFile = Path.Combine(hybridclrcodedir, "vm/Assembly.h");
-        RemovePatchedLines(vmAssemblyHeaderFile);
-        var vmAssemblyCppFile = Path.Combine(hybridclrcodedir, "vm/Assembly.cpp");
-        RemovePatchedLines(vmAssemblyCppFile);
+        void RemovePatchedLinesForPathToRoot(string pathtoroot)
+        {
+            var file = Path.Combine(hybridclrcodedir, pathtoroot);
+            RemovePatchedLines(file);
+        }
+
+        RemovePatchedLinesForPathToRoot("hybridclr/DirtyReload.cpp");
+        RemovePatchedLinesForPathToRoot("hybridclr/metadata/Assembly.h");
+        RemovePatchedLinesForPathToRoot("hybridclr/metadata/Assembly.cpp");
+        RemovePatchedLinesForPathToRoot("vm/MetadataCache.h");
+        RemovePatchedLinesForPathToRoot("vm/MetadataCache.cpp");
+        RemovePatchedLinesForPathToRoot("hybridclr/metadata/InterpreterImage.h");
+        RemovePatchedLinesForPathToRoot("hybridclr/metadata/InterpreterImage.cpp");
     }
 
     public static void PatchFiles()
@@ -203,13 +204,7 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
         PatchFile(assemblyCppSrcFile, assemblyCppFile, "static void RunModuleInitializer(Il2CppImage* image)");
 
         var assemblyCppSrcFile2 = Path.Combine(curdir, "Assembly.cpp.2~");
-        PatchFile(assemblyCppSrcFile2, assemblyCppFile, "if ((ass = FindPlaceHolderAssembly(nameNoExt)) != nullptr)");
-
-        var assemblyCppSrcFile3 = Path.Combine(curdir, "Assembly.cpp.3~");
-        PatchFile(assemblyCppSrcFile3, assemblyCppFile, "HYBRIDCLR_FREE((void*)ass->image->nameNoExt);", afterLine: true);
-
-        var assemblyCppSrcFile4 = Path.Combine(curdir, "Assembly.cpp.4~");
-        PatchFile(assemblyCppSrcFile4, assemblyCppFile, "il2cpp::vm::MetadataCache::RegisterInterpreterAssembly(ass);");
+        PatchFile(assemblyCppSrcFile2, assemblyCppFile, "il2cpp::vm::MetadataCache::RegisterInterpreterAssembly(ass);");
 
         var metaCacheHeaderFile = Path.Combine(hybridclrcodedir, "vm/MetadataCache.h");
         var metaCacheHeaderSrcFile = Path.Combine(curdir, "MetadataCache.h~");
@@ -219,13 +214,16 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
         var metaCacheCppSrcFile = Path.Combine(curdir, "MetadataCache.cpp~");
         PatchFile(metaCacheCppSrcFile, metaCacheCppFile, "void il2cpp::vm::MetadataCache::RegisterInterpreterAssembly(Il2CppAssembly* assembly)");
 
-        var vmAssemblyHeaderFile = Path.Combine(hybridclrcodedir, "vm/Assembly.h");
-        var vmAssemblyHeaderSrcFile = Path.Combine(curdir, "vmAssembly.h~");
-        PatchFile(vmAssemblyHeaderSrcFile, vmAssemblyHeaderFile, "static void InvalidateAssemblyList();", reverseSearching: true);
+        var interpImageHeaderFile = Path.Combine(hybridclrcodedir, "hybridclr/metadata/InterpreterImage.h");
+        var interpImageHeaderSrcFile = Path.Combine(curdir, "InterpreterImage.h~");
+        PatchFile(interpImageHeaderSrcFile, interpImageHeaderFile, "const Il2CppType* GetInterfaceFromGlobalOffset(TypeInterfaceIndex offset);", reverseSearching: true);
 
-        var vmAssemblyCppFile = Path.Combine(hybridclrcodedir, "vm/Assembly.cpp");
-        var vmAssemblyCppSrcFile = Path.Combine(curdir, "vmAssembly.cpp~");
-        PatchFile(vmAssemblyCppSrcFile, vmAssemblyCppFile, "void Assembly::InvalidateAssemblyList()");
+        var interpImageCppFile = Path.Combine(hybridclrcodedir, "hybridclr/metadata/InterpreterImage.cpp");
+        var interpImageCppSrcFile = Path.Combine(curdir, "InterpreterImage.cpp~");
+        PatchFile(interpImageCppSrcFile, interpImageCppFile, "#include \"metadata/FieldLayout.h\"");
+
+        var interpImageCppSrcFile2 = Path.Combine(curdir, "InterpreterImage.cpp.2~");
+        PatchFile(interpImageCppSrcFile2, interpImageCppFile, "const Il2CppType* InterpreterImage::GetInterfaceFromGlobalOffset(TypeInterfaceIndex globalOffset)");
     }
 
     private static string GetCurrentFile([CallerFilePath] string filePath = "")
@@ -243,81 +241,26 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
             return;
         }
 
-        try
+        void CopyFile(string pathtoroot)
         {
-            var dirtyReloadFile = Path.Combine(hybridclrcodedir, "hybridclr/DirtyReload.cpp");
-            var dirtyReloadDestFile = Path.Combine(destdir, "hybridclr/DirtyReload.cpp");
-            File.Copy(dirtyReloadFile, dirtyReloadDestFile, true);
-        }
-        catch (Exception e)
-        {
-            Debug.LogException(e);
-        }
-
-        try
-        {
-            var assemblyHeaderFile = Path.Combine(hybridclrcodedir, "hybridclr/metadata/Assembly.h");
-            var assemblyHeaderDestFile = Path.Combine(destdir, "hybridclr/metadata/Assembly.h");
-            File.Copy(assemblyHeaderFile, assemblyHeaderDestFile, true);
-        }
-        catch (Exception e)
-        {
-            Debug.LogException(e);
+            try
+            {
+                var src = Path.Combine(hybridclrcodedir, pathtoroot);
+                var dest = Path.Combine(destdir, pathtoroot);
+                File.Copy(src, dest, true);
+            }
+            catch (Exception e)
+            {
+                Debug.LogException(e);
+            }
         }
 
-        try
-        {
-            var assemblyCppFile = Path.Combine(hybridclrcodedir, "hybridclr/metadata/Assembly.cpp");
-            var assemblyCppDestFile = Path.Combine(destdir, "hybridclr/metadata/Assembly.cpp");
-            File.Copy(assemblyCppFile, assemblyCppDestFile, true);
-        }
-        catch (Exception e)
-        {
-            Debug.LogException(e);
-        }
-
-        try
-        {
-            var metaCacheHeaderFile = Path.Combine(hybridclrcodedir, "vm/MetadataCache.h");
-            var metaCacheHeaderDestFile = Path.Combine(destdir, "vm/MetadataCache.h");
-            File.Copy(metaCacheHeaderFile, metaCacheHeaderDestFile, true);
-        }
-        catch (Exception e)
-        {
-            Debug.LogException(e);
-        }
-
-        try
-        {
-            var metaCacheCppFile = Path.Combine(hybridclrcodedir, "vm/MetadataCache.cpp");
-            var metaCacheCppDestFile = Path.Combine(destdir, "vm/MetadataCache.cpp");
-            File.Copy(metaCacheCppFile, metaCacheCppDestFile, true);
-        }
-        catch (Exception e)
-        {
-            Debug.LogException(e);
-        }
-
-        try
-        {
-            var metaCacheHeaderFile = Path.Combine(hybridclrcodedir, "vm/Assembly.h");
-            var metaCacheHeaderDestFile = Path.Combine(destdir, "vm/Assembly.h");
-            File.Copy(metaCacheHeaderFile, metaCacheHeaderDestFile, true);
-        }
-        catch (Exception e)
-        {
-            Debug.LogException(e);
-        }
-
-        try
-        {
-            var metaCacheCppFile = Path.Combine(hybridclrcodedir, "vm/Assembly.cpp");
-            var metaCacheCppDestFile = Path.Combine(destdir, "vm/Assembly.cpp");
-            File.Copy(metaCacheCppFile, metaCacheCppDestFile, true);
-        }
-        catch (Exception e)
-        {
-            Debug.LogException(e);
-        }
+        CopyFile("hybridclr/DirtyReload.cpp");
+        CopyFile("hybridclr/metadata/Assembly.h");
+        CopyFile("hybridclr/metadata/Assembly.cpp");
+        CopyFile("vm/MetadataCache.h");
+        CopyFile("vm/MetadataCache.cpp");
+        CopyFile("hybridclr/metadata/InterpreterImage.h");
+        CopyFile("hybridclr/metadata/InterpreterImage.cpp");
     }
 }
