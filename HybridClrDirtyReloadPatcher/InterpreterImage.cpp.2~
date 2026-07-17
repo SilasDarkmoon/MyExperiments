@@ -157,22 +157,78 @@
 			}
 
 			// Structurally compatible: reuse the old Il2CppClass* so Unity native
-			// registrations stay valid. Overwrite the freshly created newKlass.
-			_classList[newRawIndex] = oldKlass;
+			// registrations (keyed by Il2CppClass*) stay valid. But the reused
+			// Il2CppClass and its MethodInfo objects were built for the PREVIOUS
+			// InterpreterImage: their metadata pointers (methodMetadataHandle,
+			// parameters, return_type, token, ...) all reference the old image's
+			// metadata pool. Simply clearing interpData is NOT enough — method
+			// resolution (e.g. GetMethodInfoFromMethodDef / ResolveMethodDefinition,
+			// invoked when Unity or interpreted IL calls a MonoBehaviour method)
+			// matches MethodInfo::methodMetadataHandle against the NEW image's
+			// Il2CppMethodDefinition* by pointer identity. Since the reused
+			// MethodInfo still points at the old image's definition, the match
+			// fails and a MissingMethodException ("MethodNotFind ...") is thrown.
+			//
+			// Fix: keep the SAME Il2CppClass* / MethodInfo* objects (pointer
+			// identity preserved for Unity/GC and any cached references) but
+			// re-bind their contents to this new image. We do this by copying the
+			// freshly built newKlass's metadata fields onto the reused objects.
+			//
+			// Note: this runs inside Assembly::Create which already holds
+			// g_MetadataLock, so no additional locking is taken here.
 
-			// Clear cached interpreter method data so bodies re-transform from this
-			// image's IL on next invocation (leaks old InterpMethodInfo — acceptable
-			// for dirty reload). Ensure no hot-update code is running concurrently.
-			if (oldKlass->methods)
+			// Rebind each reused MethodInfo to the new image's metadata. The
+			// structural-compatibility check above guarantees identical method
+			// count and per-index correspondence (same name / parameter count).
+			if (oldKlass->methods && newKlass->methods
+				&& oldKlass->method_count == newKlass->method_count)
 			{
 				for (uint16_t m = 0; m < oldKlass->method_count; m++)
 				{
-					MethodInfo* method = const_cast<MethodInfo*>(oldKlass->methods[m]);
-					if (method && method->isInterpterImpl && method->interpData)
-					{
-						method->interpData = nullptr;
-					}
+					MethodInfo* oldMethod = const_cast<MethodInfo*>(oldKlass->methods[m]);
+					const MethodInfo* newMethod = newKlass->methods[m];
+					if (!oldMethod || !newMethod)
+						continue;
+
+					// Preserve identity-critical fields.
+					Il2CppClass* keepKlass = oldKlass;
+
+					// Copy all metadata-derived fields from the freshly built
+					// MethodInfo (which references THIS image's metadata pool).
+					oldMethod->methodPointer = newMethod->methodPointer;
+					oldMethod->virtualMethodPointer = newMethod->virtualMethodPointer;
+					oldMethod->methodPointerCallByInterp = newMethod->methodPointerCallByInterp;
+					oldMethod->virtualMethodPointerCallByInterp = newMethod->virtualMethodPointerCallByInterp;
+					oldMethod->initInterpCallMethodPointer = newMethod->initInterpCallMethodPointer;
+					oldMethod->invoker_method = newMethod->invoker_method;
+					oldMethod->name = newMethod->name;
+					oldMethod->return_type = newMethod->return_type;
+					oldMethod->parameters = newMethod->parameters;
+					oldMethod->parameters_count = newMethod->parameters_count;
+					oldMethod->flags = newMethod->flags;
+					oldMethod->iflags = newMethod->iflags;
+					oldMethod->slot = newMethod->slot;
+					oldMethod->token = newMethod->token;
+					oldMethod->is_generic = newMethod->is_generic;
+					oldMethod->is_inflated = newMethod->is_inflated;
+					oldMethod->has_full_generic_sharing_signature = newMethod->has_full_generic_sharing_signature;
+					oldMethod->isInterpterImpl = newMethod->isInterpterImpl;
+					// methodMetadataHandle / genericContainerHandle share a union
+					// with rgctx_data / genericMethod. For non-inflated method
+					// definitions (the MonoBehaviour case) these hold the new
+					// image's Il2CppMethodDefinition* — the field method resolution
+					// compares by pointer identity, so it MUST be updated.
+					oldMethod->methodMetadataHandle = newMethod->methodMetadataHandle;
+					oldMethod->genericContainerHandle = newMethod->genericContainerHandle;
+
+					// Restore declaring class to the reused Il2CppClass* and drop
+					// any cached interpreter data so the body re-transforms from
+					// this image's IL on next invocation.
+					oldMethod->klass = keepKlass;
+					oldMethod->interpData = nullptr;
 				}
 			}
+
+			_classList[newRawIndex] = oldKlass;
 		}
 	}
