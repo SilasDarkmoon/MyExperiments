@@ -1,20 +1,3 @@
-	// Returns the UnityEngine.Object Il2CppClass*, or nullptr if it cannot be
-	// resolved (e.g. UnityEngine assembly not yet loaded). Cached after first
-	// successful resolution.
-	static Il2CppClass* GetUnityEngineObjectClass()
-	{
-		static Il2CppClass* s_unityObjectClass = nullptr;
-		if (s_unityObjectClass)
-			return s_unityObjectClass;
-		const Il2CppAssembly* unityAss = il2cpp::vm::Assembly::GetLoadedAssembly("UnityEngine.CoreModule");
-		if (!unityAss)
-			unityAss = il2cpp::vm::Assembly::GetLoadedAssembly("UnityEngine");
-		if (!unityAss || !unityAss->image)
-			return nullptr;
-		s_unityObjectClass = il2cpp::vm::Class::FromName(unityAss->image, "UnityEngine", "Object");
-		return s_unityObjectClass;
-	}
-
 	// Compares the structural signature (field count/name/type-name and method
 	// count/name) of two already-Init'd Il2CppClass objects. Returns true when
 	// they are structurally identical, meaning the old Il2CppClass* can safely be
@@ -110,11 +93,7 @@
 			return;
 
 		Il2CppClass* unityObjectClass = GetUnityEngineObjectClass();
-		if (!unityObjectClass)
-		{
-			// Cannot classify UnityEngine.Object-derived types; reuse nothing.
-			return;
-		}
+		(void)unityObjectClass;
 
 		// Reuse selectively, keyed by type full name (row index may differ across
 		// versions when types are added/removed/reordered).
@@ -126,6 +105,8 @@
 		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] begin class reuse: prev image _index=%u, prev classes=%u",
 			prev->_index, (uint32_t)prev->_classList.size());
 		uint32_t reusedCount = 0;
+		std::vector<Il2CppClass*> reusedOldClasses;
+		std::vector<Il2CppClass*> reusedNewClasses;
 		for (size_t ci = 0, cn = prev->_classList.size(); ci < cn; ci++)
 		{
 			Il2CppClass* oldKlass = prev->_classList[ci];
@@ -138,11 +119,11 @@
 			if (oldKlass->image != prev->_il2cppImage)
 				continue;
 
-			// Only UnityEngine.Object-derived types need pointer stability.
-			// oldKlass is fully initialized from a previous load, so HasParent
-			// (which only walks the already-built parent chain) is safe here.
-			if (!il2cpp::vm::Class::HasParent(oldKlass, unityObjectClass))
-				continue;
+			// // Only UnityEngine.Object-derived types need pointer stability.
+			// // oldKlass is fully initialized from a previous load, so HasParent
+			// // (which only walks the already-built parent chain) is safe here.
+			// if (!il2cpp::vm::Class::HasParent(oldKlass, unityObjectClass))
+			// 	continue;
 
 			// Locate the same type (by namespace + name) in this (new) image.
 			int32_t newRawIndex = -1;
@@ -262,26 +243,39 @@
 			oldKlass->interfaces_count = newKlass->interfaces_count;
 			oldKlass->interface_offsets_count = newKlass->interface_offsets_count;
 
-			// Sizes / layout and bitfield-derived flags copied from the new type
-			// definition. parent / declaringType / castClass / element_class are
-			// intentionally left as-is: for a UnityEngine.Object-derived type the
-			// parent is either a codegen class (stable across loads) or another
-			// reused UO type that already shares the same Il2CppClass* pointer, so
-			// the existing first-load values are already correct.
+			// Copy all definition-derived class fields from the freshly built type.
+			// Reuse is no longer limited to UnityEngine.Object-derived classes, so the
+			// relationship pointers must be rebound as well; otherwise a reused class
+			// may keep parent / declaringType / castClass / element_class references
+			// from the previous InterpreterImage.
+			oldKlass->element_class = newKlass->element_class;
+			oldKlass->castClass = newKlass->castClass;
+			oldKlass->declaringType = newKlass->declaringType;
+			oldKlass->parent = newKlass->parent;
+			oldKlass->interopData = newKlass->interopData;
+			oldKlass->klass = oldKlass;
 			oldKlass->instance_size = newKlass->instance_size;
+			oldKlass->stack_slot_size = newKlass->stack_slot_size;
 			oldKlass->actualSize = newKlass->actualSize;
+			oldKlass->element_size = newKlass->element_size;
 			oldKlass->native_size = newKlass->native_size;
 			oldKlass->static_fields_size = newKlass->static_fields_size;
 			oldKlass->thread_static_fields_size = newKlass->thread_static_fields_size;
+			oldKlass->thread_static_fields_offset = newKlass->thread_static_fields_offset;
+			oldKlass->typeHierarchyDepth = newKlass->typeHierarchyDepth;
+			oldKlass->genericRecursionDepth = newKlass->genericRecursionDepth;
+			oldKlass->rank = newKlass->rank;
+			oldKlass->minimumAlignment = newKlass->minimumAlignment;
 			oldKlass->packingSize = newKlass->packingSize;
 			oldKlass->enumtype = newKlass->enumtype;
+			oldKlass->nullabletype = newKlass->nullabletype;
 			oldKlass->is_generic = newKlass->is_generic;
+			oldKlass->has_references = newKlass->has_references;
 			oldKlass->has_finalize = newKlass->has_finalize;
 			oldKlass->has_cctor = newKlass->has_cctor;
 			oldKlass->is_blittable = newKlass->is_blittable;
 			oldKlass->is_import_or_windows_runtime = newKlass->is_import_or_windows_runtime;
 			oldKlass->is_byref_like = newKlass->is_byref_like;
-			oldKlass->interopData = newKlass->interopData;
 
 			// Rebind field metadata in place. FieldInfo carries parent/type pointers
 			// from the old image; later field/member resolution has the same pointer
@@ -379,15 +373,44 @@
 			oldKlass->events = nullptr;
 			oldKlass->nestedTypes = nullptr;
 			oldKlass->rgctx_data = nullptr;
-			oldKlass->generic_class = nullptr;
+			oldKlass->generic_class = newKlass->generic_class;
+			oldKlass->static_fields = nullptr;
+			oldKlass->gc_desc = nullptr;
 
 			oldKlass->is_vtable_initialized = 0;
+			oldKlass->size_init_pending = 0;
+			oldKlass->size_inited = 0;
 			oldKlass->initialized = 0;
 			oldKlass->initialized_and_no_error = 0;
 			oldKlass->init_pending = 0;
 			oldKlass->initializationExceptionGCHandle = 0;
+			oldKlass->cctor_started = 0;
+			oldKlass->cctor_finished_or_no_cctor = !oldKlass->has_cctor;
+			oldKlass->cctor_thread = 0;
 
+			reusedOldClasses.push_back(oldKlass);
+			reusedNewClasses.push_back(newKlass);
 			reusedCount++;
 		}
-		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] class reuse done: reused %u UnityEngine.Object-derived Il2CppClass* pointer(s).", reusedCount);
+
+		for (size_t i = 0, n = reusedOldClasses.size(); i < n; i++)
+		{
+			Il2CppClass* oldKlass = reusedOldClasses[i];
+			Il2CppClass* newKlass = reusedNewClasses[i];
+			for (size_t j = 0; j < n; j++)
+			{
+				Il2CppClass* reusedOld = reusedOldClasses[j];
+				Il2CppClass* reusedNew = reusedNewClasses[j];
+				if (oldKlass->parent == reusedNew)
+					oldKlass->parent = reusedOld;
+				if (oldKlass->declaringType == reusedNew)
+					oldKlass->declaringType = reusedOld;
+				if (oldKlass->castClass == reusedNew)
+					oldKlass->castClass = reusedOld;
+				if (oldKlass->element_class == reusedNew)
+					oldKlass->element_class = reusedOld;
+			}
+		}
+
+		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] class reuse done: reused %u Il2CppClass* pointer(s).", reusedCount);
 	}
