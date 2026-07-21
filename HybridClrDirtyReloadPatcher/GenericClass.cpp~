@@ -4,7 +4,7 @@
 
         for (Il2CppGenericClassSet::iterator it = s_GenericClassSet.begin(); it != s_GenericClassSet.end(); it++)
         {
-            Il2CppClass* klass = (*it)->cached_class;
+            Il2CppClass* klass = (*it).key->cached_class;
             if (!klass)
                 continue;
 
