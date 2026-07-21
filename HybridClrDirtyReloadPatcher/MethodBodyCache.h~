@@ -1,0 +1,4 @@
+		// Removes and frees every cached MethodBody that belongs to the given image.
+		// Used on dirty reload to drop the previous image's bodies before its
+		// metadata may be released, so the shrink pass never destructs a stale entry.
+		static void ClearImage(hybridclr::metadata::Image* image);

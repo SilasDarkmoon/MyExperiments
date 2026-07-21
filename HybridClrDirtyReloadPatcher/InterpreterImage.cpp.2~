@@ -19,10 +19,11 @@
 		// / GC descriptor from the new IL.
 		//
 		// Crucial ordering: ALL reusable shells are published into this image's
-		// _classList FIRST. Only then do we derive each shell's metadata and call
-		// Class::Init. Because the shells are already published, relationship
-		// resolution (parent / element / declaring / cast) walks this image's
-		// _classList and lands on the reused shells — never on a temporary class —
+		// _classList FIRST. Only then do we derive each shell's metadata (phase 2).
+		// Because the shells are already published, relationship resolution
+		// (parent / element / declaring / cast) walks this image's _classList and
+		// lands on the reused shells — never on a temporary class — so the deferred
+		// Class::Init (phase 3) walks a fully consistent hierarchy.
 		// so no manual remap pass is needed.
 
 		// Find the most recent previous InterpreterImage sharing the same Il2CppImage*.
@@ -40,6 +41,14 @@
 		}
 		if (!prev)
 			return;
+
+		// Drop every cached method body that belongs to the previous image. Those
+		// MethodBody entries point at the previous load's IL blob; keeping them in
+		// the global MethodBodyCache would let the shrink pass (ShrinkMethodBodyCache)
+		// destruct them later — and if the previous image's metadata is ever released
+		// that becomes a use-after-free. Clearing here guarantees the new image
+		// re-transforms method bodies from its own IL on demand.
+		hybridclr::metadata::MethodBodyCache::ClearImage(prev);
 
 		// Reuse is keyed by type full name (row index may differ across versions
 		// when types are added/removed/reordered).
@@ -195,22 +204,24 @@
 			oldKlass->cctor_thread = 0;
 		}
 
-		// Phase 3: fully (re)initialize every reused class from this image's IL via
-		// the battle-tested InitLocked path:
-		//   SetupInterfaces -> SetupMethods -> SetupTypeHierarchy -> SetupVTable
-		//   -> SetupFields -> SetupEvents -> SetupProperties -> SetupNestedTypes
-		//   -> SetupGCDescriptor
-		// This guarantees the interface slot mapping (interfaceOffsets), the vtable
-		// and the type hierarchy are fully consistent with the new metadata, fixing
-		// interface dispatch (MethodAccessException) after a dirty reload. The parent
-		// chain recurses through the reused shells published in phase 1.
-		uint32_t initializedCount = 0;
-		for (auto& pr : reused)
-		{
-			il2cpp::vm::Class::Init(pr.first);
-			initializedCount++;
-		}
+		// Phase 3: the class CONTENTS (methods / fields / interfaces / vtable / GC
+		// descriptor) are NOT built here. We deliberately keep the lazily-built
+		// caches reset (done in phase 2) and let il2cpp's normal, battle-tested
+		// Class::Init path rebuild them from THIS image's IL on first real use —
+		// i.e. AFTER this image is registered (RegisterInterpreterAssembly runs
+		// immediately after ReuseClassListFromPreviousLoad returns). Eagerly calling
+		// Class::Init here, inside Assembly::Create, would run static constructors
+		// before the image is visible to the metadata subsystem and re-enter
+		// Transform / MethodBodyCache (the exact shrink path that just crashed),
+		// which can corrupt the global method-body cache. The deferred path avoids
+		// that re-entrancy entirely while still using the built-in init functions.
+		//
+		// Because every reusable shell was published in phase 1 and its relationship
+		// pointers were re-derived (via Class::FromIl2CppType) onto those reused
+		// shells in phase 2, the deferred Class::Init walks a fully consistent
+		// parent / element / declaring chain — so interface dispatch, the vtable and
+		// the type hierarchy are correct without any manual partial rebuild.
 
-		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] class reuse done: reused %u Il2CppClass* pointer(s), eagerly initialized %u class(es).",
-			(uint32_t)reused.size(), initializedCount);
+		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] class reuse done: reused %u Il2CppClass* pointer(s); content rebuild deferred to first use via Class::Init.",
+			(uint32_t)reused.size());
 	}
