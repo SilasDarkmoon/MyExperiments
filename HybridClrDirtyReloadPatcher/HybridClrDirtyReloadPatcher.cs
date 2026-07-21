@@ -208,6 +208,7 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
         PatchFilePart("Assembly.h", "hybridclr/metadata", "private:", reverseSearching: true);
         PatchFilePart("Assembly.cpp", "hybridclr/metadata", "static void RunModuleInitializer(Il2CppImage* image)");
         PatchFilePart("Assembly.cpp", "hybridclr/metadata", "il2cpp::vm::MetadataCache::RegisterInterpreterAssembly(ass);", srcSuffix: ".2~");
+        PatchFilePart("Assembly.cpp", "hybridclr/metadata", "il2cpp::vm::MetadataCache::RegisterInterpreterAssembly(ass);", srcSuffix: ".3~", afterLine: true);
         PatchFilePart("MetadataCache.h", "vm", "static void RegisterInterpreterAssembly(Il2CppAssembly* assembly);", reverseSearching: true);
         PatchFilePart("MetadataCache.cpp", "vm", "void il2cpp::vm::MetadataCache::RegisterInterpreterAssembly(Il2CppAssembly* assembly)");
         PatchFilePart("InterpreterImage.h", "hybridclr/metadata", "const Il2CppType* GetInterfaceFromGlobalOffset(TypeInterfaceIndex offset);", reverseSearching: true);
