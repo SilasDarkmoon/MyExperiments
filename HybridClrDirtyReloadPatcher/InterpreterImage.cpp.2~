@@ -93,8 +93,8 @@
 		// failures in GetInterfaceInvokeDataFromVTable -> MethodAccessException
 		// on interface dispatch (e.g. IProgressPromise<float>.UpdateProgress on a
 		// ProgressResult<float, IWindow> instance).
-		il2cpp::vm::GenericClass::ResetGenericInstanceCaches();
-		il2cpp::metadata::GenericMetadata::ResetGenericInstanceCaches();
+		il2cpp::vm::GenericClass::ResetGenericInstanceCaches(il2cppImage);
+		il2cpp::metadata::GenericMetadata::ResetGenericInstanceCaches(il2cppImage);
 		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] generic instance caches reset.");
 
 		// Reuse selectively, keyed by type full name (row index may differ across
