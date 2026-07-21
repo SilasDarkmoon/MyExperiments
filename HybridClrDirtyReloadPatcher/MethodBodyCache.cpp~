@@ -5,7 +5,7 @@
 			return;
 		for (auto it = s_methodBodyCache.begin(); it != s_methodBodyCache.end(); )
 		{
-			if (it->first.image == image)
+			if (it->first.key.image == image)
 			{
 				MethodBodyCacheInfo* ci = it->second;
 				if (ci->methodBody)
