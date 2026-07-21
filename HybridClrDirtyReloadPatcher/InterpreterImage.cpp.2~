@@ -1,7 +1,8 @@
-	// Compares the structural signature (field count/name/type-name and method
-	// count/name) of two already-Init'd Il2CppClass objects. Returns true when
-	// they are structurally identical, meaning the old Il2CppClass* can safely be
-	// reused for the reloaded type.
+	// Compares the structural signature that can be checked without resolving
+	// field types. Resolving a field like ClassEle[] before all reused class shells
+	// are published can create an ArrayMetadata entry whose element_class points at
+	// the temporary newKlass(ClassEle). Fields are rebuilt later after all shells
+	// have been swapped into _classList.
 	static bool IsClassStructurallyCompatible(Il2CppClass* oldKlass, Il2CppClass* newKlass)
 	{
 		if (oldKlass->field_count != newKlass->field_count)
@@ -19,28 +20,9 @@
 		if (oldKlass->actualSize != newKlass->actualSize)
 			return false;
 
-		for (uint16_t f = 0; f < oldKlass->field_count; f++)
-		{
-			const FieldInfo& of = oldKlass->fields[f];
-			const FieldInfo& nf = newKlass->fields[f];
-			if (!of.name || !nf.name || std::strcmp(of.name, nf.name) != 0)
-				return false;
-			// Compare field type by resolved type name (Il2CppType* pointers differ
-			// across images, so identity comparison is not usable).
-			Il2CppClass* ofType = il2cpp::vm::Class::FromIl2CppType(of.type, false);
-			Il2CppClass* nfType = il2cpp::vm::Class::FromIl2CppType(nf.type, false);
-			if (!ofType || !nfType)
-				return false;
-			if (of.type->type != nf.type->type)
-				return false;
-			if (of.offset != nf.offset)
-				return false;
-			if (std::strcmp(il2cpp::vm::Class::GetName(ofType), il2cpp::vm::Class::GetName(nfType)) != 0)
-				return false;
-		}
-
 		for (uint16_t m = 0; m < oldKlass->method_count; m++)
 		{
+
 			const MethodInfo* om = oldKlass->methods[m];
 			const MethodInfo* nm = newKlass->methods[m];
 			if (!om || !nm || !om->name || !nm->name)
@@ -92,9 +74,6 @@
 		if (!prev)
 			return;
 
-		Il2CppClass* unityObjectClass = GetUnityEngineObjectClass();
-		(void)unityObjectClass;
-
 		// Reuse selectively, keyed by type full name (row index may differ across
 		// versions when types are added/removed/reordered).
 		//
@@ -119,11 +98,6 @@
 			if (oldKlass->image != prev->_il2cppImage)
 				continue;
 
-			// // Only UnityEngine.Object-derived types need pointer stability.
-			// // oldKlass is fully initialized from a previous load, so HasParent
-			// // (which only walks the already-built parent chain) is safe here.
-			// if (!il2cpp::vm::Class::HasParent(oldKlass, unityObjectClass))
-			// 	continue;
 
 			// Locate the same type (by namespace + name) in this (new) image.
 			int32_t newRawIndex = -1;
@@ -170,18 +144,18 @@
 			// (observed as a hang on the SECOND load).
 			//
 			// For reuse we only need the methods array (structural compare +
-			// per-index MethodInfo rebind) and the fields array (structural
-			// compare). Set those up lazily and cheaply instead of a full Init.
+			// per-index MethodInfo rebind). Do NOT call SetupFields(newKlass) here:
+			// fields with array types would resolve through Class::FromIl2CppType and
+			// may create ArrayMetadata entries using temporary newKlass element types
+			// before all reused shells have been published into _classList.
 			// oldKlass is already fully initialized from the first load, so
-			// SetupMethods/SetupFields on it are no-ops (guarded by klass->methods
-			// / klass->size_inited).
+			// SetupMethods on it is a no-op when methods are already present.
 			il2cpp::vm::Class::SetupMethods(oldKlass);
-			il2cpp::vm::Class::SetupFields(oldKlass);
 			il2cpp::vm::Class::SetupMethods(newKlass);
-			il2cpp::vm::Class::SetupFields(newKlass);
 
 			if (!IsClassStructurallyCompatible(oldKlass, newKlass))
 			{
+
 				il2cpp::utils::Logging::Write(
 					"[HybridCLR][DirtyReload] structural change detected for UnityEngine.Object-derived type '%s.%s'; discarding Il2CppClass reuse (Unity native cache may become stale).",
 					oldNs ? oldNs : "", oldName ? oldName : "");
@@ -277,26 +251,13 @@
 			oldKlass->is_import_or_windows_runtime = newKlass->is_import_or_windows_runtime;
 			oldKlass->is_byref_like = newKlass->is_byref_like;
 
-			// Rebind field metadata in place. FieldInfo carries parent/type pointers
-			// from the old image; later field/member resolution has the same pointer
-			// identity problem as methods. In-place rebind keeps the FieldInfo* stable
-			// (Unity / codegen may cache it) while pointing its contents at the new image.
-			if (oldKlass->fields && newKlass->fields
-				&& oldKlass->field_count == newKlass->field_count)
-			{
-				for (uint16_t f = 0; f < oldKlass->field_count; f++)
-				{
-					FieldInfo& oldField = oldKlass->fields[f];
-					const FieldInfo& newField = newKlass->fields[f];
-					oldField.name = newField.name;
-					oldField.type = newField.type;
-					oldField.offset = newField.offset;
-					oldField.token = newField.token;
-					oldField.parent = oldKlass;
-				}
-			}
+			// Rebuild FieldInfo later, after every reusable Il2CppClass shell has been
+			// published into _classList. This prevents field array types from resolving
+			// their element class to a temporary newKlass during this per-class pass.
+			oldKlass->fields = nullptr;
 
 			// Rebind each reused MethodInfo in place to the new image's metadata.
+
 			// The structural-compatibility check above guarantees identical method
 			// count and per-index correspondence (same name / parameter count).
 			// Keeping the same MethodInfo* objects preserves pointer identity for any
@@ -412,5 +373,27 @@
 			}
 		}
 
-		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] class reuse done: reused %u Il2CppClass* pointer(s).", reusedCount);
+		uint32_t rebuiltFieldCount = 0;
+		for (Il2CppClass* oldKlass : reusedOldClasses)
+		{
+			// Now that all reusable class shells have been published into this image's
+			// _classList and relationship pointers have been remapped, rebuild fields
+			// through the normal metadata path. Field array types now resolve their
+			// element class to the reused oldKlass shell instead of a temporary newKlass.
+			il2cpp::vm::Class::SetupFields(oldKlass);
+			rebuiltFieldCount++;
+		}
+
+		uint32_t initializedCount = 0;
+		for (Il2CppClass* oldKlass : reusedOldClasses)
+		{
+			// Rebuild implementedInterfaces, interfaceOffsets and vtable immediately
+			// instead of leaving them to lazy Class::Init. This makes reused classes
+			// safe for codegen interface dispatch right after reload.
+			il2cpp::vm::Class::Init(oldKlass);
+			initializedCount++;
+		}
+
+		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] class reuse done: reused %u Il2CppClass* pointer(s), rebuilt fields for %u class(es), eagerly initialized %u class(es).", reusedCount, rebuiltFieldCount, initializedCount);
+
 	}
