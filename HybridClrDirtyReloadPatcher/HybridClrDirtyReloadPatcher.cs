@@ -88,6 +88,7 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
         RemovePatchedLinesForPathToRoot("metadata/GenericMetadata.cpp");
         RemovePatchedLinesForPathToRoot("vm/GenericClass.h");
         RemovePatchedLinesForPathToRoot("vm/GenericClass.cpp");
+        RemovePatchedLinesForPathToRoot("vm/ClassInlines.cpp");
     }
 
     public static void PatchFiles()
@@ -218,6 +219,8 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
         PatchFilePart("GenericClass.cpp", "vm", "Il2CppClass* GenericClass::GetTypeDefinition(Il2CppGenericClass *gclass)");
         PatchFilePart("GenericMetadata.h", "metadata", "static void Clear();", reverseSearching: true);
         PatchFilePart("GenericMetadata.cpp", "metadata", "void GenericMetadata::Clear()");
+        PatchFilePart("ClassInlines.cpp", "vm", "NORETURN static void RaiseExceptionForNotFoundInterface(const Il2CppClass* klass, const Il2CppClass* itf, Il2CppMethodSlot slot)");
+        PatchFilePart("ClassInlines.cpp", "vm", "message = \"Attempt to access method '\" + Type::GetName(&itf->byval_arg, IL2CPP_TYPE_NAME_FORMAT_IL) + \".\" + Method::GetName(itf->methods[slot])", srcSuffix: ".2~");
     }
 
     private static string GetCurrentFile([CallerFilePath] string filePath = "")
@@ -260,5 +263,6 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
         CopyFile("metadata/GenericMetadata.cpp");
         CopyFile("vm/GenericClass.h");
         CopyFile("vm/GenericClass.cpp");
+        CopyFile("vm/ClassInlines.cpp");
     }
 }

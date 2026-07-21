@@ -1,0 +1,93 @@
+
+    static const char* SafeImageName(const Il2CppClass* klass)
+    {
+        return klass && klass->image && klass->image->name ? klass->image->name : "<null>";
+    }
+
+    static const char* SafeClassName(const Il2CppClass* klass)
+    {
+        return klass && klass->name ? klass->name : "<null>";
+    }
+
+    static const char* SafeClassNamespace(const Il2CppClass* klass)
+    {
+        return klass && klass->namespaze ? klass->namespaze : "<null>";
+    }
+
+    static void DumpGenericClass(FILE* fp, const char* label, const Il2CppClass* klass)
+    {
+        if (!fp)
+            return;
+
+        std::fprintf(fp, "  %s.generic_class=%p\n", label, klass ? (void*)klass->generic_class : NULL);
+        if (!klass || !klass->generic_class)
+            return;
+
+        const Il2CppGenericClass* gclass = klass->generic_class;
+        std::fprintf(fp, "  %s.generic_class.type=%p cached_class=%p class_inst=%p\n", label, (void*)gclass->type, (void*)gclass->cached_class, (void*)gclass->context.class_inst);
+        if (!gclass->context.class_inst)
+            return;
+
+        const Il2CppGenericInst* inst = gclass->context.class_inst;
+        std::fprintf(fp, "  %s.generic_argc=%u\n", label, inst->type_argc);
+        for (uint32_t i = 0; i < inst->type_argc; i++)
+        {
+            const Il2CppType* argType = inst->type_argv ? inst->type_argv[i] : NULL;
+            Il2CppClass* argClass = argType ? Class::FromIl2CppType(argType, false) : NULL;
+            std::fprintf(fp, "    %s.arg[%u]: type=%p typeEnum=%d class=%p %s.%s image=%s generic_class=%p\n",
+                label, i, (void*)argType, argType ? (int)argType->type : -1, (void*)argClass,
+                SafeClassNamespace(argClass), SafeClassName(argClass), SafeImageName(argClass), argClass ? (void*)argClass->generic_class : NULL);
+        }
+    }
+
+    static void DumpInterfaceDispatchFailureToFile(const Il2CppClass* klass, const Il2CppClass* itf, Il2CppMethodSlot slot)
+    {
+        FILE* fp = std::fopen("hybridclr_interface_dispatch_failure.log", "ab");
+        if (!fp)
+            fp = std::fopen("/sdcard/hybridclr_interface_dispatch_failure.log", "ab");
+        if (!fp)
+            return;
+
+        std::time_t now = std::time(NULL);
+        std::fprintf(fp, "\n===== Interface dispatch failure %lld =====\n", (long long)now);
+        std::fprintf(fp, "slot=%u\n", (uint32_t)slot);
+        std::fprintf(fp, "klass=%p %s.%s image=%s initialized=%u vtable_init=%u interfaces_count=%u interface_offsets_count=%u interfaceOffsets=%p vtable_count=%u generic_class=%p\n",
+            (void*)klass, SafeClassNamespace(klass), SafeClassName(klass), SafeImageName(klass),
+            klass ? (uint32_t)klass->initialized : 0, klass ? (uint32_t)klass->is_vtable_initialized : 0,
+            klass ? (uint32_t)klass->interfaces_count : 0, klass ? (uint32_t)klass->interface_offsets_count : 0,
+            klass ? (void*)klass->interfaceOffsets : NULL, klass ? (uint32_t)klass->vtable_count : 0,
+            klass ? (void*)klass->generic_class : NULL);
+        std::fprintf(fp, "itf=%p %s.%s image=%s methods=%p method_count=%u generic_class=%p\n",
+            (void*)itf, SafeClassNamespace(itf), SafeClassName(itf), SafeImageName(itf),
+            itf ? (void*)itf->methods : NULL, itf ? (uint32_t)itf->method_count : 0, itf ? (void*)itf->generic_class : NULL);
+        if (itf && itf->methods && slot < itf->method_count && itf->methods[slot])
+            std::fprintf(fp, "itf_method[%u]=%p %s klass=%p\n", (uint32_t)slot, (void*)itf->methods[slot], Method::GetName(itf->methods[slot]), (void*)itf->methods[slot]->klass);
+
+        DumpGenericClass(fp, "klass", klass);
+        DumpGenericClass(fp, "itf", itf);
+
+        if (klass && klass->interfaceOffsets)
+        {
+            for (uint16_t i = 0; i < klass->interface_offsets_count; i++)
+            {
+                const Il2CppRuntimeInterfaceOffsetPair* pair = klass->interfaceOffsets + i;
+                const Il2CppClass* pairItf = pair->interfaceType;
+                bool samePtr = pairItf == itf;
+                bool sameGenericTypeDef = false;
+                if (pairItf && itf && pairItf->generic_class && itf->generic_class)
+                    sameGenericTypeDef = GenericClass::HasSameGenericTypeDefinition(pairItf->generic_class, itf->generic_class);
+
+                std::fprintf(fp, "interfaceOffsets[%u]: offset=%d interfaceType=%p %s.%s image=%s generic_class=%p samePtr=%u sameGenericTypeDef=%u\n",
+                    (uint32_t)i, pair->offset, (void*)pairItf, SafeClassNamespace(pairItf), SafeClassName(pairItf), SafeImageName(pairItf),
+                    pairItf ? (void*)pairItf->generic_class : NULL, samePtr ? 1u : 0u, sameGenericTypeDef ? 1u : 0u);
+                DumpGenericClass(fp, "    pair.interfaceType", pairItf);
+            }
+        }
+        else
+        {
+            std::fprintf(fp, "klass has no interfaceOffsets array.\n");
+        }
+
+        std::fflush(fp);
+        std::fclose(fp);
+    }
