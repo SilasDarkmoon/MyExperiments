@@ -84,6 +84,10 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
         RemovePatchedLinesForPathToRoot("vm/MetadataCache.cpp");
         RemovePatchedLinesForPathToRoot("hybridclr/metadata/InterpreterImage.h");
         RemovePatchedLinesForPathToRoot("hybridclr/metadata/InterpreterImage.cpp");
+        RemovePatchedLinesForPathToRoot("metadata/GenericMetadata.h");
+        RemovePatchedLinesForPathToRoot("metadata/GenericMetadata.cpp");
+        RemovePatchedLinesForPathToRoot("vm/GenericClass.h");
+        RemovePatchedLinesForPathToRoot("vm/GenericClass.cpp");
     }
 
     public static void PatchFiles()
@@ -194,36 +198,25 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
                 Debug.LogException(e);
             }
         }
+        void PatchFilePart(string fileName, string destDir, string atLine = null, string srcSuffix = "~", bool afterLine = false, bool reverseSearching = false)
+        {
+            var destFile = Path.Combine(hybridclrcodedir, destDir, fileName);
+            var srcFile = Path.Combine(curdir, fileName + srcSuffix);
+            PatchFile(srcFile, destFile, atLine, afterLine, reverseSearching);
+        }
 
-        var assemblyHeaderFile = Path.Combine(hybridclrcodedir, "hybridclr/metadata/Assembly.h");
-        var assemblyHeaderSrcFile = Path.Combine(curdir, "Assembly.h~");
-        PatchFile(assemblyHeaderSrcFile, assemblyHeaderFile, "private:", reverseSearching: true);
-
-        var assemblyCppFile = Path.Combine(hybridclrcodedir, "hybridclr/metadata/Assembly.cpp");
-        var assemblyCppSrcFile = Path.Combine(curdir, "Assembly.cpp~");
-        PatchFile(assemblyCppSrcFile, assemblyCppFile, "static void RunModuleInitializer(Il2CppImage* image)");
-
-        var assemblyCppSrcFile2 = Path.Combine(curdir, "Assembly.cpp.2~");
-        PatchFile(assemblyCppSrcFile2, assemblyCppFile, "il2cpp::vm::MetadataCache::RegisterInterpreterAssembly(ass);");
-
-        var metaCacheHeaderFile = Path.Combine(hybridclrcodedir, "vm/MetadataCache.h");
-        var metaCacheHeaderSrcFile = Path.Combine(curdir, "MetadataCache.h~");
-        PatchFile(metaCacheHeaderSrcFile, metaCacheHeaderFile, "static void RegisterInterpreterAssembly(Il2CppAssembly* assembly);", reverseSearching: true);
-
-        var metaCacheCppFile = Path.Combine(hybridclrcodedir, "vm/MetadataCache.cpp");
-        var metaCacheCppSrcFile = Path.Combine(curdir, "MetadataCache.cpp~");
-        PatchFile(metaCacheCppSrcFile, metaCacheCppFile, "void il2cpp::vm::MetadataCache::RegisterInterpreterAssembly(Il2CppAssembly* assembly)");
-
-        var interpImageHeaderFile = Path.Combine(hybridclrcodedir, "hybridclr/metadata/InterpreterImage.h");
-        var interpImageHeaderSrcFile = Path.Combine(curdir, "InterpreterImage.h~");
-        PatchFile(interpImageHeaderSrcFile, interpImageHeaderFile, "const Il2CppType* GetInterfaceFromGlobalOffset(TypeInterfaceIndex offset);", reverseSearching: true);
-
-        var interpImageCppFile = Path.Combine(hybridclrcodedir, "hybridclr/metadata/InterpreterImage.cpp");
-        var interpImageCppSrcFile = Path.Combine(curdir, "InterpreterImage.cpp~");
-        PatchFile(interpImageCppSrcFile, interpImageCppFile, "#include \"metadata/FieldLayout.h\"");
-
-        var interpImageCppSrcFile2 = Path.Combine(curdir, "InterpreterImage.cpp.2~");
-        PatchFile(interpImageCppSrcFile2, interpImageCppFile, "const Il2CppType* InterpreterImage::GetInterfaceFromGlobalOffset(TypeInterfaceIndex globalOffset)");
+        PatchFilePart("Assembly.h", "hybridclr/metadata", "private:", reverseSearching: true);
+        PatchFilePart("Assembly.cpp", "hybridclr/metadata", "static void RunModuleInitializer(Il2CppImage* image)");
+        PatchFilePart("Assembly.cpp", "hybridclr/metadata", "il2cpp::vm::MetadataCache::RegisterInterpreterAssembly(ass);", srcSuffix: ".2~");
+        PatchFilePart("MetadataCache.h", "vm", "static void RegisterInterpreterAssembly(Il2CppAssembly* assembly);", reverseSearching: true);
+        PatchFilePart("MetadataCache.cpp", "vm", "void il2cpp::vm::MetadataCache::RegisterInterpreterAssembly(Il2CppAssembly* assembly)");
+        PatchFilePart("InterpreterImage.h", "hybridclr/metadata", "const Il2CppType* GetInterfaceFromGlobalOffset(TypeInterfaceIndex offset);", reverseSearching: true);
+        PatchFilePart("InterpreterImage.cpp", "hybridclr/metadata", "#include \"metadata/FieldLayout.h\"");
+        PatchFilePart("InterpreterImage.cpp", "hybridclr/metadata", "const Il2CppType* InterpreterImage::GetInterfaceFromGlobalOffset(TypeInterfaceIndex globalOffset)", srcSuffix: ".2~");
+        PatchFilePart("GenericClass.h", "vm", "private:", reverseSearching: true);
+        PatchFilePart("GenericClass.cpp", "vm", "Il2CppClass* GenericClass::GetTypeDefinition(Il2CppGenericClass *gclass)");
+        PatchFilePart("GenericMetadata.h", "metadata", "static void Clear();", reverseSearching: true);
+        PatchFilePart("GenericMetadata.cpp", "metadata", "void GenericMetadata::Clear()");
     }
 
     private static string GetCurrentFile([CallerFilePath] string filePath = "")
@@ -262,5 +255,9 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
         CopyFile("vm/MetadataCache.cpp");
         CopyFile("hybridclr/metadata/InterpreterImage.h");
         CopyFile("hybridclr/metadata/InterpreterImage.cpp");
+        CopyFile("metadata/GenericMetadata.h");
+        CopyFile("metadata/GenericMetadata.cpp");
+        CopyFile("vm/GenericClass.h");
+        CopyFile("vm/GenericClass.cpp");
     }
 }

@@ -1,0 +1,42 @@
+    void GenericClass::ResetGenericInstanceCaches()
+    {
+        os::FastAutoLock lock(&g_MetadataLock);
+
+        for (Il2CppGenericClassSet::iterator it = s_GenericClassSet.begin(); it != s_GenericClassSet.end(); it++)
+        {
+            Il2CppClass* klass = (*it)->cached_class;
+            if (!klass)
+                continue;
+
+            // Drop lazily-built caches so the next Class::Init rebuilds them from
+            // the current metadata. This mirrors the reset applied to reused
+            // TypeDefinition Il2CppClass shells in InterpreterImage::
+            // ReuseClassListFromPreviousLoad. Without this, generic-instance types
+            // keep interfaceOffsets / implementedInterfaces pointing at the previous
+            // image's interface Il2CppClass* pointers, causing pointer-comparison
+            // failures in GetInterfaceInvokeDataFromVTable and ultimately
+            // MethodAccessException on the second (dirty) load.
+            klass->methods = nullptr;
+            klass->fields = nullptr;
+            klass->implementedInterfaces = nullptr;
+            klass->interfaceOffsets = nullptr;
+            klass->typeHierarchy = nullptr;
+            klass->properties = nullptr;
+            klass->events = nullptr;
+            klass->nestedTypes = nullptr;
+            klass->rgctx_data = nullptr;
+            klass->static_fields = nullptr;
+            klass->gc_desc = nullptr;
+
+            klass->is_vtable_initialized = 0;
+            klass->size_init_pending = 0;
+            klass->size_inited = 0;
+            klass->initialized = 0;
+            klass->initialized_and_no_error = 0;
+            klass->init_pending = 0;
+            klass->initializationExceptionGCHandle = 0;
+            klass->cctor_started = 0;
+            klass->cctor_finished_or_no_cctor = !klass->has_cctor;
+            klass->cctor_thread = 0;
+        }
+    }

@@ -1,0 +1,39 @@
+    void GenericMetadata::ResetGenericInstanceCaches()
+    {
+        FastAutoLock lock(&s_GenericClassMutex);
+
+        for (Il2CppGenericClassSet::iterator it = s_GenericClassSet.begin(); it != s_GenericClassSet.end(); it++)
+        {
+            Il2CppClass* klass = (*it).key->cached_class;
+            if (!klass)
+                continue;
+
+            // Drop lazily-built caches so the next Class::Init rebuilds them from
+            // the current (reloaded) metadata. The s_GenericClassSet in this module
+            // stores Il2CppClass* objects that are distinct from those in
+            // GenericClass.cpp's s_GenericClassSet (one holds the original
+            // Il2CppClass*, the other holds clones), so we must reset both.
+            klass->methods = nullptr;
+            klass->fields = nullptr;
+            klass->implementedInterfaces = nullptr;
+            klass->interfaceOffsets = nullptr;
+            klass->typeHierarchy = nullptr;
+            klass->properties = nullptr;
+            klass->events = nullptr;
+            klass->nestedTypes = nullptr;
+            klass->rgctx_data = nullptr;
+            klass->static_fields = nullptr;
+            klass->gc_desc = nullptr;
+
+            klass->is_vtable_initialized = 0;
+            klass->size_init_pending = 0;
+            klass->size_inited = 0;
+            klass->initialized = 0;
+            klass->initialized_and_no_error = 0;
+            klass->init_pending = 0;
+            klass->initializationExceptionGCHandle = 0;
+            klass->cctor_started = 0;
+            klass->cctor_finished_or_no_cctor = !klass->has_cctor;
+            klass->cctor_thread = 0;
+        }
+    }

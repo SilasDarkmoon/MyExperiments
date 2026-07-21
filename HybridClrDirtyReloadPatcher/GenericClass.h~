@@ -1,0 +1,7 @@
+        // Reset lazy-built caches (interfaceOffsets, vtable, implementedInterfaces,
+        // methods, fields, etc.) of every cached generic-instance Il2CppClass so that
+        // the next Class::Init rebuilds them from the current (reloaded) metadata.
+        // This fixes MethodAccessException on interface dispatch after a dirty reload
+        // where stale interfaceOffsets still point at the previous image's interface
+        // Il2CppClass* pointers.
+        static void ResetGenericInstanceCaches();

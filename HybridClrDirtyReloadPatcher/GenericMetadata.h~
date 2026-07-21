@@ -1,0 +1,5 @@
+        // Reset lazy-built caches of every cached generic-instance Il2CppClass
+        // stored in this module's s_GenericClassSet. Called during dirty reload to
+        // ensure interfaceOffsets / vtable / implementedInterfaces are rebuilt from
+        // the new metadata, fixing MethodAccessException on interface dispatch.
+        static void ResetGenericInstanceCaches();
