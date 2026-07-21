@@ -84,8 +84,6 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
         RemovePatchedLinesForPathToRoot("vm/MetadataCache.cpp");
         RemovePatchedLinesForPathToRoot("hybridclr/metadata/InterpreterImage.h");
         RemovePatchedLinesForPathToRoot("hybridclr/metadata/InterpreterImage.cpp");
-        RemovePatchedLinesForPathToRoot("hybridclr/metadata/MethodBodyCache.h");
-        RemovePatchedLinesForPathToRoot("hybridclr/metadata/MethodBodyCache.cpp");
     }
 
     public static void PatchFiles()
@@ -226,14 +224,6 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
 
         var interpImageCppSrcFile2 = Path.Combine(curdir, "InterpreterImage.cpp.2~");
         PatchFile(interpImageCppSrcFile2, interpImageCppFile, "const Il2CppType* InterpreterImage::GetInterfaceFromGlobalOffset(TypeInterfaceIndex globalOffset)");
-
-        var methodBodyCacheHeaderFile = Path.Combine(hybridclrcodedir, "hybridclr/metadata/MethodBodyCache.h");
-        var methodBodyCacheHeaderSrcFile = Path.Combine(curdir, "MethodBodyCache.h~");
-        PatchFile(methodBodyCacheHeaderSrcFile, methodBodyCacheHeaderFile, "static void EnableShrinkMethodBodyCache(bool shrink);");
-
-        var methodBidyCacheCppFile = Path.Combine(hybridclrcodedir, "hybridclr/metadata/MethodBodyCache.cpp");
-        var methodBidyCacheCppSrcFile = Path.Combine(curdir, "MethodBodyCache.cpp~");
-        PatchFile(methodBidyCacheCppSrcFile, methodBidyCacheCppFile, "void MethodBodyCache::EnableShrinkMethodBodyCache(bool shrink)");
     }
 
     private static string GetCurrentFile([CallerFilePath] string filePath = "")
@@ -272,7 +262,5 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
         CopyFile("vm/MetadataCache.cpp");
         CopyFile("hybridclr/metadata/InterpreterImage.h");
         CopyFile("hybridclr/metadata/InterpreterImage.cpp");
-        CopyFile("hybridclr/metadata/MethodBodyCache.h");
-        CopyFile("hybridclr/metadata/MethodBodyCache.cpp");
     }
 }

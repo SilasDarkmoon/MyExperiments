@@ -2,4 +2,3 @@
 #include "vm/Assembly.h"
 #include "vm/Method.h"
 #include "utils/Logging.h"
-#include "MethodBodyCache.h"
