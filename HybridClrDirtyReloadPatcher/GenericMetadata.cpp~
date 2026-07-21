@@ -1,4 +1,4 @@
-    void GenericMetadata::ResetGenericInstanceCaches()
+    void GenericMetadata::ResetGenericInstanceCaches(const Il2CppImage* image)
     {
         FastAutoLock lock(&s_GenericClassMutex);
 
@@ -6,6 +6,12 @@
         {
             Il2CppClass* klass = (*it).key->cached_class;
             if (!klass)
+                continue;
+
+            // Only reset generic instances whose type definition belongs to the
+            // hot-update image being reloaded. AOT generic instances must be left
+            // untouched — they are actively used by the reload code path itself.
+            if (klass->image != image)
                 continue;
 
             // Drop lazily-built caches so the next Class::Init rebuilds them from
