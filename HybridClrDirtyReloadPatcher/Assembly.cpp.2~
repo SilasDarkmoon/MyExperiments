@@ -1,2 +1,2 @@
-        if (FindPlaceHolderAssembly(nameNoExt) != nullptr)
+        //if (FindPlaceHolderAssembly(nameNoExt) != nullptr)
             image->ReuseClassListFromPreviousLoad(image2);
