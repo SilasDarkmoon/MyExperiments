@@ -1,8 +1,12 @@
 	// Compares the structural signature that can be checked without resolving
-	// field types. Resolving a field like ClassEle[] before all reused class shells
-	// are published can create an ArrayMetadata entry whose element_class points at
-	// the temporary newKlass(ClassEle). Fields are rebuilt later after all shells
-	// have been swapped into _classList.
+	// any field or method types. Resolving a field/method type like ClassEle[]
+	// before all reused class shells are published can create an ArrayMetadata
+	// entry whose element_class points at the temporary newKlass(ClassEle). Fields
+	// and methods are (re)built later after all shells have been swapped into
+	// _classList. To keep this comparison free of any type resolution we read
+	// method names / parameter counts / slots directly from the Il2CppMethodDefinition
+	// metadata rather than from the (not-yet-built) MethodInfo array. This is
+	// exactly equivalent to comparing the resulting MethodInfo contents.
 	static bool IsClassStructurallyCompatible(Il2CppClass* oldKlass, Il2CppClass* newKlass)
 	{
 		if (oldKlass->field_count != newKlass->field_count)
@@ -20,16 +24,22 @@
 		if (oldKlass->actualSize != newKlass->actualSize)
 			return false;
 
+		const Il2CppTypeDefinition* oldTypeDef = (const Il2CppTypeDefinition*)oldKlass->typeMetadataHandle;
+		const Il2CppTypeDefinition* newTypeDef = (const Il2CppTypeDefinition*)newKlass->typeMetadataHandle;
+
 		for (uint16_t m = 0; m < oldKlass->method_count; m++)
 		{
-
-			const MethodInfo* om = oldKlass->methods[m];
-			const MethodInfo* nm = newKlass->methods[m];
-			if (!om || !nm || !om->name || !nm->name)
+			const Il2CppMethodDefinition* om = il2cpp::vm::GlobalMetadata::GetMethodDefinitionFromIndex(oldTypeDef->methodStart + m);
+			const Il2CppMethodDefinition* nm = il2cpp::vm::GlobalMetadata::GetMethodDefinitionFromIndex(newTypeDef->methodStart + m);
+			if (!om || !nm)
 				return false;
-			if (std::strcmp(om->name, nm->name) != 0)
+			const char* on = il2cpp::vm::GlobalMetadata::GetStringFromIndex(om->nameIndex);
+			const char* nn = il2cpp::vm::GlobalMetadata::GetStringFromIndex(nm->nameIndex);
+			if (!on || !nn)
 				return false;
-			if (om->parameters_count != nm->parameters_count)
+			if (std::strcmp(on, nn) != 0)
+				return false;
+			if (om->parameterCount != nm->parameterCount)
 				return false;
 			if (om->slot != nm->slot)
 				return false;
@@ -143,16 +153,17 @@
 			// Il2CppClass objects and makes the hierarchy/GC-bitmap walkers spin
 			// (observed as a hang on the SECOND load).
 			//
-			// For reuse we only need the methods array (structural compare +
-			// per-index MethodInfo rebind). Do NOT call SetupFields(newKlass) here:
-			// fields with array types would resolve through Class::FromIl2CppType and
-			// may create ArrayMetadata entries using temporary newKlass element types
-			// before all reused shells have been published into _classList.
-			// oldKlass is already fully initialized from the first load, so
-			// SetupMethods on it is a no-op when methods are already present.
-			il2cpp::vm::Class::SetupMethods(oldKlass);
-			il2cpp::vm::Class::SetupMethods(newKlass);
-
+			// For reuse we only need the type-definition metadata to decide
+			// structural compatibility. Do NOT call SetupFields / SetupMethods on
+			// newKlass yet: resolving field or method parameter/return types early
+			// would resolve array element classes through Class::FromIl2CppType and
+			// may create ArrayMetadata entries using the temporary newKlass before
+			// all reused shells have been published into _classList. The comparison
+			// below reads method names / parameter counts / slots straight from the
+			// Il2CppMethodDefinition metadata, so no type resolution happens here.
+			// SetupMethods + the per-index MethodInfo rebind are deferred until AFTER
+			// every field has been rebuilt (see the post-loop phase), keeping the old
+			// MethodInfo* objects reused while rebinding their contents to this image.
 			if (!IsClassStructurallyCompatible(oldKlass, newKlass))
 			{
 
@@ -256,58 +267,6 @@
 			// their element class to a temporary newKlass during this per-class pass.
 			oldKlass->fields = nullptr;
 
-			// Rebind each reused MethodInfo in place to the new image's metadata.
-
-			// The structural-compatibility check above guarantees identical method
-			// count and per-index correspondence (same name / parameter count).
-			// Keeping the same MethodInfo* objects preserves pointer identity for any
-			// cached references while the contents now reference this image's pool.
-			if (oldKlass->methods && newKlass->methods
-				&& oldKlass->method_count == newKlass->method_count)
-			{
-				for (uint16_t m = 0; m < oldKlass->method_count; m++)
-				{
-					MethodInfo* oldMethod = const_cast<MethodInfo*>(oldKlass->methods[m]);
-					const MethodInfo* newMethod = newKlass->methods[m];
-					if (!oldMethod || !newMethod)
-						continue;
-
-					// Copy all metadata-derived fields from the freshly built
-					// MethodInfo (which references THIS image's metadata pool).
-					oldMethod->methodPointer = newMethod->methodPointer;
-					oldMethod->virtualMethodPointer = newMethod->virtualMethodPointer;
-					oldMethod->methodPointerCallByInterp = newMethod->methodPointerCallByInterp;
-					oldMethod->virtualMethodPointerCallByInterp = newMethod->virtualMethodPointerCallByInterp;
-					oldMethod->initInterpCallMethodPointer = newMethod->initInterpCallMethodPointer;
-					oldMethod->invoker_method = newMethod->invoker_method;
-					oldMethod->name = newMethod->name;
-					oldMethod->return_type = newMethod->return_type;
-					oldMethod->parameters = newMethod->parameters;
-					oldMethod->parameters_count = newMethod->parameters_count;
-					oldMethod->flags = newMethod->flags;
-					oldMethod->iflags = newMethod->iflags;
-					oldMethod->slot = newMethod->slot;
-					oldMethod->token = newMethod->token;
-					oldMethod->is_generic = newMethod->is_generic;
-					oldMethod->is_inflated = newMethod->is_inflated;
-					oldMethod->has_full_generic_sharing_signature = newMethod->has_full_generic_sharing_signature;
-					oldMethod->isInterpterImpl = newMethod->isInterpterImpl;
-					// methodMetadataHandle / genericContainerHandle share a union
-					// with rgctx_data / genericMethod. For non-inflated method
-					// definitions (the MonoBehaviour case) these hold the new
-					// image's Il2CppMethodDefinition* — the field method resolution
-					// compares by pointer identity, so it MUST be updated.
-					oldMethod->methodMetadataHandle = newMethod->methodMetadataHandle;
-					oldMethod->genericContainerHandle = newMethod->genericContainerHandle;
-
-					// Restore declaring class to the reused Il2CppClass* and drop
-					// any cached interpreter data so the body re-transforms from
-					// this image's IL on next invocation.
-					oldMethod->klass = oldKlass;
-					oldMethod->interpData = nullptr;
-				}
-			}
-
 			// Drop EVERY lazily-built cache derived from the previous image. The next
 			// Class::Init(oldKlass) — which runs lazily, AFTER this image is registered
 			// and the type is actually used (AddComponent / codegen InitFromCodegen /
@@ -384,6 +343,74 @@
 			rebuiltFieldCount++;
 		}
 
+		// Fields for every reused class are now rebuilt, so array element classes
+		// resolve to the published oldKlass shells instead of the temporary newKlass
+		// objects. Deferring SetupMethods to here (rather than during the per-class
+		// pass) keeps method parameter/return-type resolution from creating
+		// ArrayMetadata entries that reference temporary newKlass objects. The old
+		// MethodInfo* objects are still reused (pointer identity preserved for any
+		// cached reference); only their contents are rebound to this image's pool.
+		uint32_t reboundMethodCount = 0;
+		for (size_t i = 0, n = reusedOldClasses.size(); i < n; i++)
+		{
+			Il2CppClass* oldKlass = reusedOldClasses[i];
+			Il2CppClass* newKlass = reusedNewClasses[i];
+
+			il2cpp::vm::Class::SetupMethods(oldKlass);
+			il2cpp::vm::Class::SetupMethods(newKlass);
+
+			// The structural-compatibility check guarantees identical method count
+			// and per-index correspondence (same name / parameter count / slot).
+			// Keeping the same MethodInfo* objects preserves pointer identity for any
+			// cached references while the contents now reference this image's pool.
+			if (oldKlass->methods && newKlass->methods
+				&& oldKlass->method_count == newKlass->method_count)
+			{
+				for (uint16_t m = 0; m < oldKlass->method_count; m++)
+				{
+					MethodInfo* oldMethod = const_cast<MethodInfo*>(oldKlass->methods[m]);
+					const MethodInfo* newMethod = newKlass->methods[m];
+					if (!oldMethod || !newMethod)
+						continue;
+
+					// Copy all metadata-derived fields from the freshly built
+					// MethodInfo (which references THIS image's metadata pool).
+					oldMethod->methodPointer = newMethod->methodPointer;
+					oldMethod->virtualMethodPointer = newMethod->virtualMethodPointer;
+					oldMethod->methodPointerCallByInterp = newMethod->methodPointerCallByInterp;
+					oldMethod->virtualMethodPointerCallByInterp = newMethod->virtualMethodPointerCallByInterp;
+					oldMethod->initInterpCallMethodPointer = newMethod->initInterpCallMethodPointer;
+					oldMethod->invoker_method = newMethod->invoker_method;
+					oldMethod->name = newMethod->name;
+					oldMethod->return_type = newMethod->return_type;
+					oldMethod->parameters = newMethod->parameters;
+					oldMethod->parameters_count = newMethod->parameters_count;
+					oldMethod->flags = newMethod->flags;
+					oldMethod->iflags = newMethod->iflags;
+					oldMethod->slot = newMethod->slot;
+					oldMethod->token = newMethod->token;
+					oldMethod->is_generic = newMethod->is_generic;
+					oldMethod->is_inflated = newMethod->is_inflated;
+					oldMethod->has_full_generic_sharing_signature = newMethod->has_full_generic_sharing_signature;
+					oldMethod->isInterpterImpl = newMethod->isInterpterImpl;
+					// methodMetadataHandle / genericContainerHandle share a union
+					// with rgctx_data / genericMethod. For non-inflated method
+					// definitions (the MonoBehaviour case) these hold the new
+					// image's Il2CppMethodDefinition* — the field method resolution
+					// compares by pointer identity, so it MUST be updated.
+					oldMethod->methodMetadataHandle = newMethod->methodMetadataHandle;
+					oldMethod->genericContainerHandle = newMethod->genericContainerHandle;
+
+					// Restore declaring class to the reused Il2CppClass* and drop
+					// any cached interpreter data so the body re-transforms from
+					// this image's IL on next invocation.
+					oldMethod->klass = oldKlass;
+					oldMethod->interpData = nullptr;
+				}
+			}
+			reboundMethodCount++;
+		}
+
 		uint32_t initializedCount = 0;
 		for (Il2CppClass* oldKlass : reusedOldClasses)
 		{
@@ -394,6 +421,6 @@
 			initializedCount++;
 		}
 
-		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] class reuse done: reused %u Il2CppClass* pointer(s), rebuilt fields for %u class(es), eagerly initialized %u class(es).", reusedCount, rebuiltFieldCount, initializedCount);
+		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] class reuse done: reused %u Il2CppClass* pointer(s), rebuilt fields for %u class(es), rebound methods for %u class(es), eagerly initialized %u class(es).", reusedCount, rebuiltFieldCount, reboundMethodCount, initializedCount);
 
 	}
