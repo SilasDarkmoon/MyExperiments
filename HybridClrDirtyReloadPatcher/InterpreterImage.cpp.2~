@@ -1,43 +1,3 @@
-	// Compares the structural signature that can be checked without resolving
-	// field types. Resolving a field like ClassEle[] before all reused class shells
-	// are published can create an ArrayMetadata entry whose element_class points at
-	// the temporary newKlass(ClassEle). Fields are rebuilt later after all shells
-	// have been swapped into _classList.
-	static bool IsClassStructurallyCompatible(Il2CppClass* oldKlass, Il2CppClass* newKlass)
-	{
-		if (oldKlass->field_count != newKlass->field_count)
-			return false;
-		if (oldKlass->method_count != newKlass->method_count)
-			return false;
-		if (oldKlass->vtable_count != newKlass->vtable_count)
-			return false;
-		if (oldKlass->interfaces_count != newKlass->interfaces_count)
-			return false;
-		if (oldKlass->interface_offsets_count != newKlass->interface_offsets_count)
-			return false;
-		if (oldKlass->instance_size != newKlass->instance_size)
-			return false;
-		if (oldKlass->actualSize != newKlass->actualSize)
-			return false;
-
-		for (uint16_t m = 0; m < oldKlass->method_count; m++)
-		{
-
-			const MethodInfo* om = oldKlass->methods[m];
-			const MethodInfo* nm = newKlass->methods[m];
-			if (!om || !nm || !om->name || !nm->name)
-				return false;
-			if (std::strcmp(om->name, nm->name) != 0)
-				return false;
-			if (om->parameters_count != nm->parameters_count)
-				return false;
-			if (om->slot != nm->slot)
-				return false;
-		}
-
-		return true;
-	}
-
 	void InterpreterImage::ReuseClassListFromPreviousLoad(Il2CppImage* il2cppImage)
 	{
 		// On dirty reload a fresh InterpreterImage is created with an all-null
@@ -48,15 +8,22 @@
 		// time), Unity will not re-scan, leaving the new Il2CppClass objects
 		// unregistered — AddComponent<MonoBehaviour>() returns null.
 		//
-		// Fix: for types derived from UnityEngine.Object (the ones Unity native
-		// caches by Il2CppClass*), reuse the SAME Il2CppClass* from the previous
-		// load so Unity's registrations remain valid — but ONLY when the type is
-		// structurally unchanged (same fields, same method count). All other
-		// types are dropped (left null) and re-created lazily from the new IL.
+		// Fix: for every type that also existed in the previous load (matched by
+		// namespace + name) REUSE the SAME Il2CppClass* so Unity's registrations
+		// stay valid. We deliberately do NOT build any temporary newKlass: a
+		// newKlass would leak its pointer into metadata caches (the type pool,
+		// vtable, interface-offset maps, and parent/element/declaring chains) and
+		// cause type confusion. Instead we re-derive the reused class's shell
+		// straight from THIS image's metadata and then let the built-in
+		// Class::Init path fully (re)build methods / fields / interfaces / vtable
+		// / GC descriptor from the new IL.
 		//
-		// Method bodies of reused classes still update: they are resolved through
-		// klass->image->token which now points to this new InterpreterImage. We
-		// clear the cached interpData so methods re-transform from the new IL.
+		// Crucial ordering: ALL reusable shells are published into this image's
+		// _classList FIRST. Only then do we derive each shell's metadata and call
+		// Class::Init. Because the shells are already published, relationship
+		// resolution (parent / element / declaring / cast) walks this image's
+		// _classList and lands on the reused shells — never on a temporary class —
+		// so no manual remap pass is needed.
 
 		// Find the most recent previous InterpreterImage sharing the same Il2CppImage*.
 		InterpreterImage* prev = nullptr;
@@ -74,8 +41,8 @@
 		if (!prev)
 			return;
 
-		// Reuse selectively, keyed by type full name (row index may differ across
-		// versions when types are added/removed/reordered).
+		// Reuse is keyed by type full name (row index may differ across versions
+		// when types are added/removed/reordered).
 		//
 		// NOTE: iterate over a snapshot of prev->_classList indices. prev is a
 		// DIFFERENT container from this->_classList (which we mutate below), so
@@ -83,9 +50,12 @@
 		// bound stable and makes the traversal obviously finite.
 		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] begin class reuse: prev image _index=%u, prev classes=%u",
 			prev->_index, (uint32_t)prev->_classList.size());
-		uint32_t reusedCount = 0;
-		std::vector<Il2CppClass*> reusedOldClasses;
-		std::vector<Il2CppClass*> reusedNewClasses;
+
+		// Phase 1: publish every reusable Il2CppClass* shell into this image's
+		// _classList. Only the pointer is relocated here — no class contents are
+		// touched yet, so relationship resolution during the later derive pass
+		// finds the reused shell instead of building a fresh class.
+		std::vector<std::pair<Il2CppClass*, uint32_t>> reused;   // (oldKlass, newRawIndex)
 		for (size_t ci = 0, cn = prev->_classList.size(); ci < cn; ci++)
 		{
 			Il2CppClass* oldKlass = prev->_classList[ci];
@@ -97,7 +67,6 @@
 			// have a different image; skip it to avoid touching foreign metadata.
 			if (oldKlass->image != prev->_il2cppImage)
 				continue;
-
 
 			// Locate the same type (by namespace + name) in this (new) image.
 			int32_t newRawIndex = -1;
@@ -124,209 +93,80 @@
 				continue;
 			}
 
-			// Build the new Il2CppClass to compare structure.
-			Il2CppClass* newKlass = GetTypeInfoFromTypeDefinitionRawIndex((uint32_t)newRawIndex);
-			if (!newKlass)
-				continue;
-
-			// IMPORTANT: do NOT call Class::Init(newKlass) here.
-			//
-			// This runs inside Assembly::Create, BEFORE this new image is
-			// registered (RegisterInterpreterAssembly runs afterwards). A full
-			// Class::Init would trigger SetupVTable / SetupTypeHierarchy /
-			// SetupGCDescriptor (which walk the parent chain) / SetupFields /
-			// static-ctor bookkeeping on a type whose Il2CppImage is not yet
-			// visible to the metadata subsystem, and whose _classList slot is
-			// about to be overwritten with the reused oldKlass a few lines
-			// below. In dirty-reload scenarios with inheriting UnityEngine.Object
-			// derived types this can produce a parent chain that mixes old/new
-			// Il2CppClass objects and makes the hierarchy/GC-bitmap walkers spin
-			// (observed as a hang on the SECOND load).
-			//
-			// For reuse we only need the methods array (structural compare +
-			// per-index MethodInfo rebind). Do NOT call SetupFields(newKlass) here:
-			// fields with array types would resolve through Class::FromIl2CppType and
-			// may create ArrayMetadata entries using temporary newKlass element types
-			// before all reused shells have been published into _classList.
-			// oldKlass is already fully initialized from the first load, so
-			// SetupMethods on it is a no-op when methods are already present.
-			il2cpp::vm::Class::SetupMethods(oldKlass);
-			il2cpp::vm::Class::SetupMethods(newKlass);
-
-			if (!IsClassStructurallyCompatible(oldKlass, newKlass))
-			{
-
-				il2cpp::utils::Logging::Write(
-					"[HybridCLR][DirtyReload] structural change detected for UnityEngine.Object-derived type '%s.%s'; discarding Il2CppClass reuse (Unity native cache may become stale).",
-					oldNs ? oldNs : "", oldName ? oldName : "");
-				// Keep the freshly created newKlass in _classList (already set by
-				// GetTypeInfoFromTypeDefinitionRawIndex); do NOT reuse the old one.
-				continue;
-			}
-
-			// Structurally compatible: reuse the old Il2CppClass* so Unity native
-			// registrations (keyed by Il2CppClass*) stay valid. But the reused
-			// Il2CppClass and its MethodInfo objects were built for the PREVIOUS
-			// InterpreterImage: their metadata pointers (methodMetadataHandle,
-			// parameters, return_type, token, ...) all reference the old image's
-			// metadata pool. Simply clearing interpData is NOT enough — method
-			// resolution (e.g. GetMethodInfoFromMethodDef / ResolveMethodDefinition,
-			// invoked when Unity or interpreted IL calls a MonoBehaviour method)
-			// matches MethodInfo::methodMetadataHandle against the NEW image's
-			// Il2CppMethodDefinition* by pointer identity. Since the reused
-			// MethodInfo still points at the old image's definition, the match
-			// fails and a MissingMethodException ("MethodNotFind ...") is thrown.
-			//
-			// Fix: keep the SAME Il2CppClass* / MethodInfo* objects (pointer
-			// identity preserved for Unity/GC and any cached references) but
-			// re-bind their contents to this new image. We do this by copying the
-			// freshly built newKlass's metadata fields onto the reused objects.
-			//
-			// Note: this runs inside Assembly::Create which already holds
-			// g_MetadataLock, so no additional locking is taken here.
-
-			// Publish the reused class in the NEW image before rebinding its
-			// Il2CppType/typeMetadataHandle. After the rebind, resolving
-			// oldKlass->byval_arg must return oldKlass from this image's _classList,
-			// not the temporary newKlass nor the previous image's class.
+			// Publish the reused shell in the NEW image. Relationship pointers of
+			// other reused classes will resolve to this object once derived.
 			_classList[newRawIndex] = oldKlass;
+			reused.push_back({ oldKlass, (uint32_t)newRawIndex });
+		}
 
-			// Rebind class-level metadata first. Method resolution often starts from
-			// method->klass->byval_arg or object->klass->byval_arg; if these still
-			// point to the previous image's Il2CppTypeDefinition, ResolveMethodDefinition
-			// finds an old methodDef, while the MethodInfo array has been rebound to
-			// the new methodDef handles, causing MethodNotFind by pointer mismatch.
-			// Rebind class-level metadata to THIS image so all later lookups
-			// (vtable, interface offset, field, method) resolve against the new
-			// metadata pool, not the previous one.
-			oldKlass->image = newKlass->image;
-			oldKlass->name = newKlass->name;
-			oldKlass->namespaze = newKlass->namespaze;
-			oldKlass->byval_arg = newKlass->byval_arg;
-			oldKlass->this_arg = newKlass->this_arg;
-			oldKlass->typeMetadataHandle = newKlass->typeMetadataHandle;
-			oldKlass->genericContainerHandle = newKlass->genericContainerHandle;
-			oldKlass->flags = newKlass->flags;
-			oldKlass->token = newKlass->token;
-			oldKlass->method_count = newKlass->method_count;
-			oldKlass->property_count = newKlass->property_count;
-			oldKlass->field_count = newKlass->field_count;
-			oldKlass->event_count = newKlass->event_count;
-			oldKlass->nested_type_count = newKlass->nested_type_count;
-			oldKlass->vtable_count = newKlass->vtable_count;
-			oldKlass->interfaces_count = newKlass->interfaces_count;
-			oldKlass->interface_offsets_count = newKlass->interface_offsets_count;
+		// Phase 2: re-derive each reused shell's metadata from THIS image, using
+		// the same built-in metadata reads that il2cpp's GlobalMetadata::
+		// FromTypeDefinition uses, and reset every lazily-built cache so the
+		// normal Init path rebuilds them. Relationship pointers are resolved
+		// through Class::FromIl2CppType, which now lands on the reused shells
+		// published above (no newKlass involved).
+		for (auto& pr : reused)
+		{
+			Il2CppClass* oldKlass = pr.first;
+			uint32_t newRawIndex = pr.second;
+			const Il2CppTypeDefinition* td = &_typesDefines[newRawIndex];
+			const Il2CppTypeDefinitionSizes* tds =
+				hybridclr::metadata::MetadataModule::GetTypeDefinitionSizesFromEncodeIndex(EncodeWithIndex(newRawIndex));
 
-			// Copy all definition-derived class fields from the freshly built type.
-			// Reuse is no longer limited to UnityEngine.Object-derived classes, so the
-			// relationship pointers must be rebound as well; otherwise a reused class
-			// may keep parent / declaringType / castClass / element_class references
-			// from the previous InterpreterImage.
-			oldKlass->element_class = newKlass->element_class;
-			oldKlass->castClass = newKlass->castClass;
-			oldKlass->declaringType = newKlass->declaringType;
-			oldKlass->parent = newKlass->parent;
-			oldKlass->interopData = newKlass->interopData;
-			oldKlass->klass = oldKlass;
-			oldKlass->instance_size = newKlass->instance_size;
-			oldKlass->stack_slot_size = newKlass->stack_slot_size;
-			oldKlass->actualSize = newKlass->actualSize;
-			oldKlass->element_size = newKlass->element_size;
-			oldKlass->native_size = newKlass->native_size;
-			oldKlass->static_fields_size = newKlass->static_fields_size;
-			oldKlass->thread_static_fields_size = newKlass->thread_static_fields_size;
-			oldKlass->thread_static_fields_offset = newKlass->thread_static_fields_offset;
-			oldKlass->typeHierarchyDepth = newKlass->typeHierarchyDepth;
-			oldKlass->genericRecursionDepth = newKlass->genericRecursionDepth;
-			oldKlass->rank = newKlass->rank;
-			oldKlass->minimumAlignment = newKlass->minimumAlignment;
-			oldKlass->packingSize = newKlass->packingSize;
-			oldKlass->enumtype = newKlass->enumtype;
-			oldKlass->nullabletype = newKlass->nullabletype;
-			oldKlass->is_generic = newKlass->is_generic;
-			oldKlass->has_references = newKlass->has_references;
-			oldKlass->has_finalize = newKlass->has_finalize;
-			oldKlass->has_cctor = newKlass->has_cctor;
-			oldKlass->is_blittable = newKlass->is_blittable;
-			oldKlass->is_import_or_windows_runtime = newKlass->is_import_or_windows_runtime;
-			oldKlass->is_byref_like = newKlass->is_byref_like;
+			// --- FromTypeDefinition-level shell data, sourced from the new image ---
+			oldKlass->image = _il2cppImage;
+			oldKlass->name = il2cpp::vm::GlobalMetadata::GetStringFromIndex(td->nameIndex);
+			oldKlass->namespaze = il2cpp::vm::GlobalMetadata::GetStringFromIndex(td->namespaceIndex);
+			oldKlass->byval_arg = *il2cpp::vm::GlobalMetadata::GetIl2CppTypeFromIndex(td->byvalTypeIndex);
+			oldKlass->this_arg = oldKlass->byval_arg;
+			oldKlass->this_arg.byref = true;
+			oldKlass->this_arg.valuetype = 0;
+			oldKlass->typeMetadataHandle = reinterpret_cast<const Il2CppMetadataTypeHandle>(td);
+			oldKlass->genericContainerHandle = il2cpp::vm::GlobalMetadata::GetGenericContainerFromIndex(td->genericContainerIndex);
+			oldKlass->instance_size = tds->instance_size;
+			oldKlass->actualSize = tds->instance_size;
+			oldKlass->native_size = tds->native_size;
+			oldKlass->static_fields_size = tds->static_fields_size;
+			oldKlass->thread_static_fields_size = tds->thread_static_fields_size;
+			oldKlass->thread_static_fields_offset = -1;
+			oldKlass->flags = td->flags;
+			oldKlass->enumtype = (td->bitfield >> (il2cpp::vm::kBitIsEnum - 1)) & 0x1;
+			oldKlass->is_generic = td->genericContainerIndex != kGenericContainerIndexInvalid;
+			oldKlass->has_finalize = (td->bitfield >> (il2cpp::vm::kBitHasFinalizer - 1)) & 0x1;
+			oldKlass->has_cctor = (td->bitfield >> (il2cpp::vm::kBitHasStaticConstructor - 1)) & 0x1;
+			oldKlass->cctor_finished_or_no_cctor = !oldKlass->has_cctor;
+			oldKlass->is_blittable = (td->bitfield >> (il2cpp::vm::kBitIsBlittable - 1)) & 0x1;
+			oldKlass->is_import_or_windows_runtime = (td->bitfield >> (il2cpp::vm::kBitIsImportOrWindowsRuntime - 1)) & 0x1;
+			oldKlass->packingSize = il2cpp::vm::GlobalMetadata::ConvertPackingSizeEnumToValue(
+				static_cast<il2cpp::vm::PackingSize>((td->bitfield >> (il2cpp::vm::kPackingSize - 1)) & 0xF));
+			oldKlass->is_byref_like = (td->bitfield >> (il2cpp::vm::kBitIsByRefLike - 1)) & 0x1;
+			oldKlass->method_count = td->method_count;
+			oldKlass->property_count = td->property_count;
+			oldKlass->field_count = td->field_count;
+			oldKlass->event_count = td->event_count;
+			oldKlass->nested_type_count = td->nested_type_count;
+			oldKlass->vtable_count = td->vtable_count;
+			oldKlass->interfaces_count = td->interfaces_count;
+			oldKlass->interface_offsets_count = td->interface_offsets_count;
+			oldKlass->token = td->token;
+			oldKlass->interopData = il2cpp::vm::MetadataCache::GetInteropDataForType(&oldKlass->byval_arg);
 
-			// Rebuild FieldInfo later, after every reusable Il2CppClass shell has been
-			// published into _classList. This prevents field array types from resolving
-			// their element class to a temporary newKlass during this per-class pass.
+			// Relationship pointers via the built-in path. A parent / declaring /
+			// element type that is also reused resolves to the reused shell.
+			oldKlass->parent = (td->parentIndex != kTypeIndexInvalid)
+				? il2cpp::vm::Class::FromIl2CppType(il2cpp::vm::GlobalMetadata::GetIl2CppTypeFromIndex(td->parentIndex))
+				: nullptr;
+			oldKlass->declaringType = (td->declaringTypeIndex != kTypeIndexInvalid)
+				? il2cpp::vm::Class::FromIl2CppType(il2cpp::vm::GlobalMetadata::GetIl2CppTypeFromIndex(td->declaringTypeIndex))
+				: nullptr;
+			oldKlass->castClass = oldKlass->element_class = oldKlass;
+			if (oldKlass->enumtype)
+				oldKlass->castClass = oldKlass->element_class =
+					il2cpp::vm::Class::FromIl2CppType(il2cpp::vm::GlobalMetadata::GetIl2CppTypeFromIndex(td->elementTypeIndex));
+
+			// --- reset every lazily-built cache so Class::Init rebuilds from new ---
 			oldKlass->fields = nullptr;
-
-			// Rebind each reused MethodInfo in place to the new image's metadata.
-
-			// The structural-compatibility check above guarantees identical method
-			// count and per-index correspondence (same name / parameter count).
-			// Keeping the same MethodInfo* objects preserves pointer identity for any
-			// cached references while the contents now reference this image's pool.
-			if (oldKlass->methods && newKlass->methods
-				&& oldKlass->method_count == newKlass->method_count)
-			{
-				for (uint16_t m = 0; m < oldKlass->method_count; m++)
-				{
-					MethodInfo* oldMethod = const_cast<MethodInfo*>(oldKlass->methods[m]);
-					const MethodInfo* newMethod = newKlass->methods[m];
-					if (!oldMethod || !newMethod)
-						continue;
-
-					// Copy all metadata-derived fields from the freshly built
-					// MethodInfo (which references THIS image's metadata pool).
-					oldMethod->methodPointer = newMethod->methodPointer;
-					oldMethod->virtualMethodPointer = newMethod->virtualMethodPointer;
-					oldMethod->methodPointerCallByInterp = newMethod->methodPointerCallByInterp;
-					oldMethod->virtualMethodPointerCallByInterp = newMethod->virtualMethodPointerCallByInterp;
-					oldMethod->initInterpCallMethodPointer = newMethod->initInterpCallMethodPointer;
-					oldMethod->invoker_method = newMethod->invoker_method;
-					oldMethod->name = newMethod->name;
-					oldMethod->return_type = newMethod->return_type;
-					oldMethod->parameters = newMethod->parameters;
-					oldMethod->parameters_count = newMethod->parameters_count;
-					oldMethod->flags = newMethod->flags;
-					oldMethod->iflags = newMethod->iflags;
-					oldMethod->slot = newMethod->slot;
-					oldMethod->token = newMethod->token;
-					oldMethod->is_generic = newMethod->is_generic;
-					oldMethod->is_inflated = newMethod->is_inflated;
-					oldMethod->has_full_generic_sharing_signature = newMethod->has_full_generic_sharing_signature;
-					oldMethod->isInterpterImpl = newMethod->isInterpterImpl;
-					// methodMetadataHandle / genericContainerHandle share a union
-					// with rgctx_data / genericMethod. For non-inflated method
-					// definitions (the MonoBehaviour case) these hold the new
-					// image's Il2CppMethodDefinition* — the field method resolution
-					// compares by pointer identity, so it MUST be updated.
-					oldMethod->methodMetadataHandle = newMethod->methodMetadataHandle;
-					oldMethod->genericContainerHandle = newMethod->genericContainerHandle;
-
-					// Restore declaring class to the reused Il2CppClass* and drop
-					// any cached interpreter data so the body re-transforms from
-					// this image's IL on next invocation.
-					oldMethod->klass = oldKlass;
-					oldMethod->interpData = nullptr;
-				}
-			}
-
-			// Drop EVERY lazily-built cache derived from the previous image. The next
-			// Class::Init(oldKlass) — which runs lazily, AFTER this image is registered
-			// and the type is actually used (AddComponent / codegen InitFromCodegen /
-			// il2cpp_codegen_initialize_runtime_metadata) — will rebuild them from this
-			// image's metadata through the normal InitLocked sequence:
-			//   SetupInterfaces -> SetupMethods -> SetupTypeHierarchy -> SetupVTable
-			//   -> SetupFields -> SetupEvents -> SetupProperties -> SetupNestedTypes
-			//   -> SetupGCDescriptor
-			// i.e. EXACTLY how a freshly created Il2CppClass is initialized. This
-			// guarantees the interface slot mapping (interfaceOffsets), the vtable and
-			// the type hierarchy are fully consistent with the new metadata, fixing
-			// interface dispatch (MethodAccessException "Attempt to access method ...
-			// on type ... failed") after a dirty reload.
-			//
-			// We deliberately do NOT hand-rebuild interfaceOffsets / implementedInterfaces
-			// / vtable here: a manual partial rebuild (done against a not-yet-registered
-			// image, before the normal Init runs) can leave them subtly inconsistent
-			// with the new image — which is precisely the bug observed on the second load.
-			// Resetting the caches lets the battle-tested InitLocked path do the work.
+			oldKlass->methods = nullptr;
 			oldKlass->implementedInterfaces = nullptr;
 			oldKlass->interfaceOffsets = nullptr;
 			oldKlass->typeHierarchy = nullptr;
@@ -334,10 +174,16 @@
 			oldKlass->events = nullptr;
 			oldKlass->nestedTypes = nullptr;
 			oldKlass->rgctx_data = nullptr;
-			oldKlass->generic_class = newKlass->generic_class;
 			oldKlass->static_fields = nullptr;
 			oldKlass->gc_desc = nullptr;
-
+			oldKlass->has_references = 0;
+			oldKlass->minimumAlignment = 0;
+			oldKlass->typeHierarchyDepth = 0;
+			oldKlass->element_size = 0;
+			oldKlass->stack_slot_size = 0;
+			oldKlass->nullabletype = 0;
+			oldKlass->genericRecursionDepth = 0;
+			oldKlass->rank = 0;
 			oldKlass->is_vtable_initialized = 0;
 			oldKlass->size_init_pending = 0;
 			oldKlass->size_inited = 0;
@@ -346,54 +192,25 @@
 			oldKlass->init_pending = 0;
 			oldKlass->initializationExceptionGCHandle = 0;
 			oldKlass->cctor_started = 0;
-			oldKlass->cctor_finished_or_no_cctor = !oldKlass->has_cctor;
 			oldKlass->cctor_thread = 0;
-
-			reusedOldClasses.push_back(oldKlass);
-			reusedNewClasses.push_back(newKlass);
-			reusedCount++;
 		}
 
-		for (size_t i = 0, n = reusedOldClasses.size(); i < n; i++)
-		{
-			Il2CppClass* oldKlass = reusedOldClasses[i];
-			Il2CppClass* newKlass = reusedNewClasses[i];
-			for (size_t j = 0; j < n; j++)
-			{
-				Il2CppClass* reusedOld = reusedOldClasses[j];
-				Il2CppClass* reusedNew = reusedNewClasses[j];
-				if (oldKlass->parent == reusedNew)
-					oldKlass->parent = reusedOld;
-				if (oldKlass->declaringType == reusedNew)
-					oldKlass->declaringType = reusedOld;
-				if (oldKlass->castClass == reusedNew)
-					oldKlass->castClass = reusedOld;
-				if (oldKlass->element_class == reusedNew)
-					oldKlass->element_class = reusedOld;
-			}
-		}
-
-		uint32_t rebuiltFieldCount = 0;
-		for (Il2CppClass* oldKlass : reusedOldClasses)
-		{
-			// Now that all reusable class shells have been published into this image's
-			// _classList and relationship pointers have been remapped, rebuild fields
-			// through the normal metadata path. Field array types now resolve their
-			// element class to the reused oldKlass shell instead of a temporary newKlass.
-			il2cpp::vm::Class::SetupFields(oldKlass);
-			rebuiltFieldCount++;
-		}
-
+		// Phase 3: fully (re)initialize every reused class from this image's IL via
+		// the battle-tested InitLocked path:
+		//   SetupInterfaces -> SetupMethods -> SetupTypeHierarchy -> SetupVTable
+		//   -> SetupFields -> SetupEvents -> SetupProperties -> SetupNestedTypes
+		//   -> SetupGCDescriptor
+		// This guarantees the interface slot mapping (interfaceOffsets), the vtable
+		// and the type hierarchy are fully consistent with the new metadata, fixing
+		// interface dispatch (MethodAccessException) after a dirty reload. The parent
+		// chain recurses through the reused shells published in phase 1.
 		uint32_t initializedCount = 0;
-		for (Il2CppClass* oldKlass : reusedOldClasses)
+		for (auto& pr : reused)
 		{
-			// Rebuild implementedInterfaces, interfaceOffsets and vtable immediately
-			// instead of leaving them to lazy Class::Init. This makes reused classes
-			// safe for codegen interface dispatch right after reload.
-			il2cpp::vm::Class::Init(oldKlass);
+			il2cpp::vm::Class::Init(pr.first);
 			initializedCount++;
 		}
 
-		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] class reuse done: reused %u Il2CppClass* pointer(s), rebuilt fields for %u class(es), eagerly initialized %u class(es).", reusedCount, rebuiltFieldCount, initializedCount);
-
+		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] class reuse done: reused %u Il2CppClass* pointer(s), eagerly initialized %u class(es).",
+			(uint32_t)reused.size(), initializedCount);
 	}
