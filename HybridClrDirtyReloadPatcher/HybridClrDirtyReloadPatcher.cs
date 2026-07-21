@@ -229,11 +229,11 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
 
         var methodBodyCacheHeaderFile = Path.Combine(hybridclrcodedir, "hybridclr/metadata/MethodBodyCache.h");
         var methodBodyCacheHeaderSrcFile = Path.Combine(curdir, "MethodBodyCache.h~");
-        PatchFile(methodBodyCacheHeaderSrcFile, methodBodyCacheHeaderFile, "static void EnableShrinkMethodBodyCache(bool shrink);", afterLine: true);
+        PatchFile(methodBodyCacheHeaderSrcFile, methodBodyCacheHeaderFile, "static void EnableShrinkMethodBodyCache(bool shrink);");
 
         var methodBidyCacheCppFile = Path.Combine(hybridclrcodedir, "hybridclr/metadata/MethodBodyCache.cpp");
         var methodBidyCacheCppSrcFile = Path.Combine(curdir, "MethodBodyCache.cpp~");
-        PatchFile(methodBidyCacheCppSrcFile, methodBidyCacheCppFile, "void MethodBodyCache::EnableShrinkMethodBodyCache(bool shrink)", afterLine: true);
+        PatchFile(methodBidyCacheCppSrcFile, methodBidyCacheCppFile, "void MethodBodyCache::EnableShrinkMethodBodyCache(bool shrink)");
     }
 
     private static string GetCurrentFile([CallerFilePath] string filePath = "")
