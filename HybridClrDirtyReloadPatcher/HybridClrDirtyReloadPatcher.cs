@@ -227,7 +227,6 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
         PatchFilePart("ClassInlines.cpp", "vm", "NORETURN static void RaiseExceptionForNotFoundInterface(const Il2CppClass* klass, const Il2CppClass* itf, Il2CppMethodSlot slot)");
         PatchFilePart("ClassInlines.cpp", "vm", "message = \"Attempt to access method '\" + Type::GetName(&itf->byval_arg, IL2CPP_TYPE_NAME_FORMAT_IL) + \".\" + Method::GetName(itf->methods[slot])", srcSuffix: ".2~");
         PatchFilePart("ClassInlines.cpp", "vm", "namespace il2cpp", srcSuffix: ".3~");
-        PatchFilePart("ClassInlines.cpp", "vm", "if (Class::IsGenericClassAssignableFromVariance(itf, pair->interfaceType, klass))", srcSuffix: ".4~", replaceLine: true);
         PatchFilePart("Engine.h", "hybridclr/interpreter", "ExceptionFlowInfo* AllocExceptionFlow(int32_t count)");
     }
 
