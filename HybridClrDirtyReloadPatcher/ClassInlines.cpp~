@@ -14,8 +14,43 @@
         return klass && klass->namespaze ? klass->namespaze : "<null>";
     }
 
+    static const Il2CppTypeDefinition* SafeTypeDefinition(const Il2CppClass* klass)
+    {
+        return klass ? reinterpret_cast<const Il2CppTypeDefinition*>(klass->typeMetadataHandle) : NULL;
+    }
+
+    static int32_t SafeByvalTypeIndex(const Il2CppClass* klass)
+    {
+        const Il2CppTypeDefinition* typeDef = SafeTypeDefinition(klass);
+        return typeDef ? typeDef->byvalTypeIndex : kTypeIndexInvalid;
+    }
+
+    static uint32_t SafeEncodedImageIndex(int32_t encodedIndex)
+    {
+        return hybridclr::metadata::IsInterpreterIndex(encodedIndex) ? hybridclr::metadata::DecodeImageIndex(encodedIndex) : 0;
+    }
+
+    static uint32_t SafeImageTokenIndex(const Il2CppClass* klass)
+    {
+        return klass && klass->image ? SafeEncodedImageIndex((int32_t)klass->image->token) : 0;
+    }
+
+    static void DumpClassIdentity(FILE* fp, const char* label, const Il2CppClass* klass)
+    {
+        if (!fp)
+            return;
+
+        int32_t byvalTypeIndex = SafeByvalTypeIndex(klass);
+        std::fprintf(fp, "  %s.identity class=%p imagePtr=%p image=%s imageToken=0x%08x imageTokenIndex=%u typeMetadataHandle=%p byvalTypeIndex=0x%08x byvalImageIndex=%u generic_class=%p\n",
+            label, (void*)klass, klass ? (void*)klass->image : NULL, SafeImageName(klass),
+            klass && klass->image ? klass->image->token : 0, SafeImageTokenIndex(klass),
+            klass ? (void*)klass->typeMetadataHandle : NULL, (uint32_t)byvalTypeIndex, SafeEncodedImageIndex(byvalTypeIndex),
+            klass ? (void*)klass->generic_class : NULL);
+    }
+
     static void DumpGenericClass(FILE* fp, const char* label, const Il2CppClass* klass)
     {
+
         if (!fp)
             return;
 
@@ -63,8 +98,11 @@
         if (itf && itf->methods && slot < itf->method_count && itf->methods[slot])
             std::fprintf(fp, "itf_method[%u]=%p %s klass=%p\n", (uint32_t)slot, (void*)itf->methods[slot], Method::GetName(itf->methods[slot]), (void*)itf->methods[slot]->klass);
 
+        DumpClassIdentity(fp, "klass", klass);
+        DumpClassIdentity(fp, "itf", itf);
         DumpGenericClass(fp, "klass", klass);
         DumpGenericClass(fp, "itf", itf);
+
 
         if (klass && klass->interfaceOffsets)
         {
@@ -80,7 +118,9 @@
                 std::fprintf(fp, "interfaceOffsets[%u]: offset=%d interfaceType=%p %s.%s image=%s generic_class=%p samePtr=%u sameGenericTypeDef=%u\n",
                     (uint32_t)i, pair->offset, (void*)pairItf, SafeClassNamespace(pairItf), SafeClassName(pairItf), SafeImageName(pairItf),
                     pairItf ? (void*)pairItf->generic_class : NULL, samePtr ? 1u : 0u, sameGenericTypeDef ? 1u : 0u);
+                DumpClassIdentity(fp, "    pair.interfaceType", pairItf);
                 DumpGenericClass(fp, "    pair.interfaceType", pairItf);
+
             }
         }
         else
