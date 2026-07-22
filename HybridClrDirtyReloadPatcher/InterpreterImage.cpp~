@@ -1,4 +1,6 @@
 #include "vm/Class.h"
 #include "vm/Assembly.h"
 #include "vm/Method.h"
+#include "vm/GenericClass.h"
 #include "utils/Logging.h"
+#include "MethodBodyCache.h"

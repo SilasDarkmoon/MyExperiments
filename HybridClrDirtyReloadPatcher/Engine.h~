@@ -1,0 +1,15 @@
+		bool HasFrameMethod(const MethodInfo* method) const
+		{
+			if (!_frameBase || !method)
+			{
+				return false;
+			}
+			for (int32_t i = 0; i < _frameTopIdx; i++)
+			{
+				if (_frameBase[i].method == method)
+				{
+					return true;
+				}
+			}
+			return false;
+		}

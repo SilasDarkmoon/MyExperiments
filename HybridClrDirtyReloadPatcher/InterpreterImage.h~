@@ -4,3 +4,4 @@
 		// interpreter method data so method bodies re-transform from the new IL.
 		void ReuseClassListFromPreviousLoad(Il2CppImage* il2cppImage);
 		void EagerInitDirtyReloadReusedClasses();
+		static void ClearAllInterpreterMethodInterpData();

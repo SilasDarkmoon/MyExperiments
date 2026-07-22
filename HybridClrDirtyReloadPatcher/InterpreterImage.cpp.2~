@@ -390,3 +390,42 @@
 			il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] eagerly initialized %u reused class(es) after assembly registration.", initializedCount);
 		s_dirtyReloadReusedClasses.clear();
 	}
+
+	void InterpreterImage::ClearAllInterpreterMethodInterpData()
+	{
+		hybridclr::interpreter::MachineState& machine = hybridclr::interpreter::InterpreterModule::GetCurrentThreadMachineState();
+		uint32_t clearedCount = 0;
+		uint32_t skippedRunningCount = 0;
+
+		for (uint32_t i = 0; i < kMaxMetadataImageCount; i++)
+		{
+			InterpreterImage* image = s_images[i];
+			if (!image)
+				continue;
+
+			for (Il2CppClass* klass : image->_classList)
+			{
+				if (!klass || !klass->methods)
+					continue;
+
+				for (uint16_t m = 0; m < klass->method_count; m++)
+				{
+					MethodInfo* method = const_cast<MethodInfo*>(klass->methods[m]);
+					if (!method || !method->interpData)
+						continue;
+
+					if (machine.HasFrameMethod(method))
+					{
+						skippedRunningCount++;
+						continue;
+					}
+
+					method->interpData = nullptr;
+					clearedCount++;
+				}
+			}
+		}
+
+		if (clearedCount > 0 || skippedRunningCount > 0)
+			il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] cleared %u interpreter method interpData cache(s), skipped %u running frame method(s).", clearedCount, skippedRunningCount);
+	}
