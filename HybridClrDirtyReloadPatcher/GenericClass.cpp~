@@ -24,6 +24,16 @@
             // image's interface Il2CppClass* pointers, causing pointer-comparison
             // failures in GetInterfaceInvokeDataFromVTable and ultimately
             // MethodAccessException on the second (dirty) load.
+            if (klass->methods)
+            {
+                for (uint16_t m = 0; m < klass->method_count; m++)
+                {
+                    MethodInfo* method = const_cast<MethodInfo*>(klass->methods[m]);
+                    if (method)
+                        method->interpData = nullptr;
+                }
+            }
+
             klass->methods = nullptr;
             klass->fields = nullptr;
             klass->implementedInterfaces = nullptr;

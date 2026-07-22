@@ -19,6 +19,16 @@
             // stores Il2CppClass* objects that are distinct from those in
             // GenericClass.cpp's s_GenericClassSet (one holds the original
             // Il2CppClass*, the other holds clones), so we must reset both.
+            if (klass->methods)
+            {
+                for (uint16_t m = 0; m < klass->method_count; m++)
+                {
+                    MethodInfo* method = const_cast<MethodInfo*>(klass->methods[m]);
+                    if (method)
+                        method->interpData = nullptr;
+                }
+            }
+
             klass->methods = nullptr;
             klass->fields = nullptr;
             klass->implementedInterfaces = nullptr;
