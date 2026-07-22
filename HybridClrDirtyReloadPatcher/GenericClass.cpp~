@@ -2,6 +2,7 @@
     {
         os::FastAutoLock lock(&g_MetadataLock);
 
+        std::vector<Il2CppGenericClassSet::iterator> toErase;
         for (Il2CppGenericClassSet::iterator it = s_GenericClassSet.begin(); it != s_GenericClassSet.end(); it++)
         {
             Il2CppClass* klass = (*it).key->cached_class;
@@ -15,6 +16,11 @@
             // caches causes crashes.
             if (klass->image != image)
                 continue;
+
+            // 清除 cached_class，强制重新创建
+            (*it).key->cached_class = nullptr;
+            // 标记待删除
+            toErase.push_back(it);
 
             // Drop lazily-built caches so the next Class::Init rebuilds them from
             // the current metadata. This mirrors the reset applied to reused
@@ -57,4 +63,9 @@
             klass->cctor_finished_or_no_cctor = !klass->has_cctor;
             klass->cctor_thread = 0;
         }
+
+        // 从 set 中移除旧条目，防止旧 type 指针导致 hash 不命中
+        for (auto& it : toErase)
+            s_GenericClassSet.erase(it);
+
     }
