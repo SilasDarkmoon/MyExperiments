@@ -48,6 +48,22 @@
             klass ? (void*)klass->generic_class : NULL);
     }
 
+    static void DumpGenericClassTypeIdentity(FILE* fp, const char* label, const Il2CppGenericClass* gclass)
+    {
+        if (!fp || !gclass || !gclass->type)
+            return;
+
+        const Il2CppType* type = gclass->type;
+        const Il2CppTypeDefinition* typeDef = NULL;
+        if ((type->type == IL2CPP_TYPE_CLASS || type->type == IL2CPP_TYPE_VALUETYPE) && type->data.typeHandle)
+            typeDef = reinterpret_cast<const Il2CppTypeDefinition*>(type->data.typeHandle);
+
+        int32_t byvalTypeIndex = typeDef ? typeDef->byvalTypeIndex : kTypeIndexInvalid;
+        std::fprintf(fp, "  %s.generic_class.type.identity type=%p typeEnum=%d attrs=0x%04x byref=%u typeHandle=%p byvalTypeIndex=0x%08x byvalImageIndex=%u\n",
+            label, (void*)type, (int)type->type, (uint32_t)type->attrs, (uint32_t)type->byref,
+            typeDef ? (void*)typeDef : NULL, (uint32_t)byvalTypeIndex, SafeEncodedImageIndex(byvalTypeIndex));
+    }
+
     static void DumpGenericClass(FILE* fp, const char* label, const Il2CppClass* klass)
     {
 
@@ -60,6 +76,7 @@
 
         const Il2CppGenericClass* gclass = klass->generic_class;
         std::fprintf(fp, "  %s.generic_class.type=%p cached_class=%p class_inst=%p\n", label, (void*)gclass->type, (void*)gclass->cached_class, (void*)gclass->context.class_inst);
+        DumpGenericClassTypeIdentity(fp, label, gclass);
         if (!gclass->context.class_inst)
             return;
 
