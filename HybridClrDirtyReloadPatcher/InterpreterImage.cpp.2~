@@ -97,9 +97,9 @@
 		// failures in GetInterfaceInvokeDataFromVTable -> MethodAccessException
 		// on interface dispatch (e.g. IProgressPromise<float>.UpdateProgress on a
 		// ProgressResult<float, IWindow> instance).
-		il2cpp::vm::GenericClass::ResetGenericInstanceCaches(il2cppImage);
-		il2cpp::metadata::GenericMetadata::ResetGenericInstanceCaches(il2cppImage);
-		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] generic instance caches reset.");
+		il2cpp::vm::GenericClass::ResetGenericInstanceCaches(il2cppImage, false);
+		il2cpp::metadata::GenericMetadata::ResetGenericInstanceCaches(il2cppImage, false);
+		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] generic instance classes prepared for reuse.");
 
 		// Reuse selectively, keyed by type full name (row index may differ across
 		// versions when types are added/removed/reordered).
@@ -367,9 +367,9 @@
 			reboundMethodCount++;
 		}
 
-		il2cpp::vm::GenericClass::ResetGenericInstanceCaches(il2cppImage);
-		il2cpp::metadata::GenericMetadata::ResetGenericInstanceCaches(il2cppImage);
-		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] generic instance caches reset after class rebind.");
+		il2cpp::vm::GenericClass::ResetGenericInstanceCaches(il2cppImage, true);
+		il2cpp::metadata::GenericMetadata::ResetGenericInstanceCaches(il2cppImage, true);
+		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] generic instance classes rebound after class rebind.");
 
 		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] class reuse done: reused %u Il2CppClass* pointer(s), rebuilt fields for %u class(es), rebound methods for %u class(es). Eager init is deferred until after assembly registration.", reusedCount, rebuiltFieldCount, reboundMethodCount);
 

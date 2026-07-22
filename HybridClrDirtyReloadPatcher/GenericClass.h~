@@ -1,8 +1,6 @@
-        // Reset lazy-built caches (interfaceOffsets, vtable, implementedInterfaces,
-        // methods, fields, etc.) of cached generic-instance Il2CppClass objects
-        // whose type definition belongs to the given image (i.e. hot-update types
-        // only). AOT generic instances are left untouched. This fixes
-        // MethodAccessException on interface dispatch after a dirty reload where
-        // stale interfaceOffsets still point at the previous image's interface
-        // Il2CppClass* pointers.
-        static void ResetGenericInstanceCaches(const Il2CppImage* image);
+        // Rebind and reuse cached generic-instance Il2CppClass objects whose type
+        // definition belongs to the given image after a hot-update reload. AOT
+        // generic instances are left untouched. This fixes stale lazy-built caches
+        // (interfaceOffsets, vtable, implementedInterfaces, methods, fields, etc.)
+        // while preserving Il2CppClass* identity.
+        static void ResetGenericInstanceCaches(const Il2CppImage* image, bool resolveRelations = true);

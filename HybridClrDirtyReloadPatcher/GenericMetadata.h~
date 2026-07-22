@@ -1,5 +1,5 @@
-        // Reset lazy-built caches of cached generic-instance Il2CppClass objects
-        // stored in this module's s_GenericClassSet, filtered by image. Only types
-        // whose type definition belongs to the given image (hot-update types) are
-        // reset; AOT generic instances are left untouched.
-        static void ResetGenericInstanceCaches(const Il2CppImage* image);
+        // Rebind and reuse cached generic-instance Il2CppClass objects stored in
+        // this module's s_GenericClassSet after a hot-update image reload. Only
+        // generic instances whose type definition belongs to the given image are
+        // touched; AOT generic instances are left untouched.
+        static void ResetGenericInstanceCaches(const Il2CppImage* image, bool resolveRelations = true);
