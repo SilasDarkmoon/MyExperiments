@@ -1,0 +1,2 @@
+                if (Class::IsGenericClassAssignableFromVariance(itf, pair->interfaceType, klass)
+                    || IsSameGenericInstantiationForDirtyReload(itf, pair->interfaceType))

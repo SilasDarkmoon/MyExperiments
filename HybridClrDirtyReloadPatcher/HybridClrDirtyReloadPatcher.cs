@@ -114,7 +114,7 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
             Debug.LogException(e);
         }
 
-        static void PatchFile(string srcFile, string destFile, string atLine = null, bool afterLine = false, bool reverseSearching = false)
+        static void PatchFile(string srcFile, string destFile, string atLine = null, bool afterLine = false, bool reverseSearching = false, bool replaceLine = false)
         {
             try
             {
@@ -190,6 +190,10 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
                             }
                         }
                         newlines.AddRange(oldlines);
+                        if (replaceLine)
+                        {
+                            newlines.RemoveAt(insertIndex);
+                        }
                         newlines.InsertRange(insertIndex, insertlines);
                     }
                     File.WriteAllLines(destFile, newlines.ToArray());
@@ -200,11 +204,11 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
                 Debug.LogException(e);
             }
         }
-        void PatchFilePart(string fileName, string destDir, string atLine = null, string srcSuffix = "~", bool afterLine = false, bool reverseSearching = false)
+        void PatchFilePart(string fileName, string destDir, string atLine = null, string srcSuffix = "~", bool afterLine = false, bool reverseSearching = false, bool replaceLine = false)
         {
             var destFile = Path.Combine(hybridclrcodedir, destDir, fileName);
             var srcFile = Path.Combine(curdir, fileName + srcSuffix);
-            PatchFile(srcFile, destFile, atLine, afterLine, reverseSearching);
+            PatchFile(srcFile, destFile, atLine, afterLine, reverseSearching, replaceLine);
         }
 
         PatchFilePart("Assembly.h", "hybridclr/metadata", "private:", reverseSearching: true);
@@ -223,6 +227,7 @@ public class HybridClrDirtyReloadPatcher : IPostBuildPlayerScriptDLLs
         PatchFilePart("ClassInlines.cpp", "vm", "NORETURN static void RaiseExceptionForNotFoundInterface(const Il2CppClass* klass, const Il2CppClass* itf, Il2CppMethodSlot slot)");
         PatchFilePart("ClassInlines.cpp", "vm", "message = \"Attempt to access method '\" + Type::GetName(&itf->byval_arg, IL2CPP_TYPE_NAME_FORMAT_IL) + \".\" + Method::GetName(itf->methods[slot])", srcSuffix: ".2~");
         PatchFilePart("ClassInlines.cpp", "vm", "namespace il2cpp", srcSuffix: ".3~");
+        PatchFilePart("ClassInlines.cpp", "vm", "if (Class::IsGenericClassAssignableFromVariance(itf, pair->interfaceType, klass))", srcSuffix: ".4~", replaceLine: true);
         PatchFilePart("Engine.h", "hybridclr/interpreter", "ExceptionFlowInfo* AllocExceptionFlow(int32_t count)");
     }
 

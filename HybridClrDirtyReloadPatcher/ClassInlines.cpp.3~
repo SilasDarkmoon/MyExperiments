@@ -1,5 +1,7 @@
+#include "vm/GlobalMetadata.h"
 #include "vm/GlobalMetadataFileInternals.h"
 #include "hybridclr/metadata/MetadataUtil.h"
 
 #include <cstdio>
 #include <ctime>
+#include <cstring>

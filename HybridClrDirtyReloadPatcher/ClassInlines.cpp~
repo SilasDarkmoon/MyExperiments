@@ -148,3 +148,59 @@
         std::fflush(fp);
         std::fclose(fp);
     }
+
+    static bool IsSameGenericTypeDefinitionByName(const Il2CppGenericClass* left, const Il2CppGenericClass* right)
+    {
+        if (!left || !right || !left->type || !right->type)
+            return false;
+
+        const Il2CppType* leftType = left->type;
+        const Il2CppType* rightType = right->type;
+        if (leftType->type != rightType->type)
+            return false;
+
+        if (leftType->type != IL2CPP_TYPE_CLASS && leftType->type != IL2CPP_TYPE_VALUETYPE)
+            return false;
+
+        const Il2CppTypeDefinition* leftDef = reinterpret_cast<const Il2CppTypeDefinition*>(leftType->data.typeHandle);
+        const Il2CppTypeDefinition* rightDef = reinterpret_cast<const Il2CppTypeDefinition*>(rightType->data.typeHandle);
+        if (!leftDef || !rightDef)
+            return false;
+
+        const char* leftName = il2cpp::vm::GlobalMetadata::GetStringFromIndex(leftDef->nameIndex);
+
+        const char* rightName = il2cpp::vm::GlobalMetadata::GetStringFromIndex(rightDef->nameIndex);
+        const char* leftNs = il2cpp::vm::GlobalMetadata::GetStringFromIndex(leftDef->namespaceIndex);
+        const char* rightNs = il2cpp::vm::GlobalMetadata::GetStringFromIndex(rightDef->namespaceIndex);
+        if (!leftName || !rightName || !leftNs || !rightNs)
+            return false;
+
+        return std::strcmp(leftName, rightName) == 0 && std::strcmp(leftNs, rightNs) == 0;
+    }
+
+    static bool IsSameGenericInstantiationForDirtyReload(const Il2CppClass* left, const Il2CppClass* right)
+    {
+        if (!left || !right || !left->generic_class || !right->generic_class)
+            return false;
+
+        if (!GenericClass::HasSameGenericTypeDefinition(left->generic_class, right->generic_class)
+            && !IsSameGenericTypeDefinitionByName(left->generic_class, right->generic_class))
+            return false;
+
+        const Il2CppGenericInst* leftInst = left->generic_class->context.class_inst;
+
+        const Il2CppGenericInst* rightInst = right->generic_class->context.class_inst;
+        if (!leftInst || !rightInst || leftInst->type_argc != rightInst->type_argc)
+            return false;
+
+        for (uint32_t i = 0; i < leftInst->type_argc; i++)
+        {
+            Il2CppClass* leftArg = leftInst->type_argv ? Class::FromIl2CppType(leftInst->type_argv[i], false) : NULL;
+            Il2CppClass* rightArg = rightInst->type_argv ? Class::FromIl2CppType(rightInst->type_argv[i], false) : NULL;
+            if (leftArg != rightArg)
+                return false;
+        }
+
+        return true;
+    }
+
