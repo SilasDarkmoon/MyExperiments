@@ -1,0 +1,2 @@
+#include "vm/Image.h"
+#include <vector>
