@@ -38,6 +38,8 @@
     {
         FastAutoLock lock(&s_GenericClassMutex);
 
+        std::vector<Il2CppGenericClassSet::iterator> toRehash;
+        std::vector<Il2CppGenericClassSet::iterator> toErase;
         for (Il2CppGenericClassSet::iterator it = s_GenericClassSet.begin(); it != s_GenericClassSet.end(); it++)
         {
             Il2CppGenericClass* gclass = (*it).key;
@@ -65,6 +67,19 @@
             if (!definition || definition->image != image)
                 continue;
 
+            if (klass->method_count != definition->method_count ||
+                klass->field_count != definition->field_count ||
+                klass->property_count != definition->property_count ||
+                klass->event_count != definition->event_count ||
+                klass->interfaces_count != definition->interfaces_count ||
+                klass->interface_offsets_count != definition->interface_offsets_count ||
+                klass->vtable_count != definition->vtable_count)
+            {
+                gclass->cached_class = nullptr;
+                toErase.push_back(it);
+                continue;
+            }
+
             gclass->type = &definition->byval_arg;
             klass->image = definition->image;
             klass->name = definition->name;
@@ -78,6 +93,8 @@
             klass->event_count = definition->event_count;
             klass->field_count = definition->field_count;
             klass->interfaces_count = definition->interfaces_count;
+            klass->interface_offsets_count = definition->interface_offsets_count;
+            klass->vtable_count = definition->vtable_count;
             klass->method_count = definition->method_count;
             klass->property_count = definition->property_count;
             klass->enumtype = definition->enumtype;
@@ -115,5 +132,16 @@
             // the current (reloaded) metadata, but keep both cached_class and the
             // Il2CppClass* itself to preserve pointer identity across reloads.
             ResetGenericInstanceClass(klass);
+            toRehash.push_back(it);
+        }
+
+        for (Il2CppGenericClassSet::iterator it : toErase)
+            s_GenericClassSet.erase(it);
+
+        for (Il2CppGenericClassSet::iterator it : toRehash)
+        {
+            Il2CppGenericClass* gclass = (*it).key;
+            s_GenericClassSet.erase(it);
+            s_GenericClassSet.insert(gclass);
         }
     }

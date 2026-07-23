@@ -88,18 +88,10 @@
 		if (!prev)
 			return;
 
-		// Reset lazy-built caches of ALL generic-instance Il2CppClass objects in
-		// both the GenericClass and GenericMetadata module-level caches. These
-		// Il2CppClass* are NOT in any InterpreterImage::_classList, so the per-
-		// class reuse loop below does not touch them. After a dirty reload their
-		// interfaceOffsets / implementedInterfaces still point at the previous
-		// image's interface Il2CppClass* pointers, causing pointer-comparison
-		// failures in GetInterfaceInvokeDataFromVTable -> MethodAccessException
-		// on interface dispatch (e.g. IProgressPromise<float>.UpdateProgress on a
-		// ProgressResult<float, IWindow> instance).
-		il2cpp::vm::GenericClass::ResetGenericInstanceCaches(il2cppImage, false);
-		il2cpp::metadata::GenericMetadata::ResetGenericInstanceCaches(il2cppImage, false);
-		il2cpp::utils::Logging::Write("[HybridCLR][DirtyReload] generic instance classes prepared for reuse.");
+		// Generic-instance Il2CppClass objects are rebound after ordinary class
+		// shells have been published into this image's _classList. Rebinding them
+		// before this point can create temporary type-definition Il2CppClass objects
+		// and poison generic vtables/interface offsets with non-reused class shells.
 
 		// Reuse selectively, keyed by type full name (row index may differ across
 		// versions when types are added/removed/reordered).
