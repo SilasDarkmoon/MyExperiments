@@ -1,3 +1,4 @@
 #include "vm/Image.h"
 #include "GlobalMetadata.h"
+#include "vm/GlobalMetadataFileInternals.h"
 #include <vector>
